@@ -10,21 +10,24 @@ from qat.qlmaas.connection import QLMaaSConnection
 connection = QLMaaSConnection()
 
 from qlmaas.qpus import JadeQPU as QPU
-qpu = connection.get_qpu("qat.qpus:JadeQPU")()
-
 
 # Build device and register from QPU specs
+qpu = QPU()
 specs = qpu.get_specs()
 device = Device.from_abstract_repr(specs.description)
+device.print_specs()
 
 # 2. DEFINIZIONE DEL PROBLEMA QUBO
-Q = np.array([
-    [-10.0, 19.7365809, 19.7365809, 5.42015853, 5.42015853],
-    [19.7365809, -10.0, 20.67626392, 0.17675796, 0.85604541],
-    [19.7365809, 20.67626392, -10.0, 0.85604541, 0.17675796],
-    [5.42015853, 0.17675796, 0.85604541, -10.0, 0.32306662],
-    [5.42015853, 0.85604541, 0.17675796, 0.32306662, -10.0],
-])
+Q = np.array(
+    [
+        [-10.0, 19.7365809, 19.7365809, 5.42015853, 5.42015853],
+        [19.7365809, -10.0, 20.67626392, 0.17675796, 0.85604541],
+        [19.7365809, 20.67626392, -10.0, 0.85604541, 0.17675796],
+        [5.42015853, 0.17675796, 0.85604541, -10.0, 0.32306662],
+        [5.42015853, 0.85604541, 0.17675796, 0.32306662, -10.0],
+    ]
+)
+
 
 # 3. MAPPATURA SPAZIALE (Usando i parametri di Jade)
 def evaluate_mapping(new_coords, *args):
@@ -33,6 +36,7 @@ def evaluate_mapping(new_coords, *args):
     # Calcolo usando il VERO coefficiente di Van der Waals di Jade
     new_Q = squareform(jade_device.interaction_coeff / pdist(new_coords) ** 6)
     return np.linalg.norm(new_Q - Q)
+
 
 shape = (len(Q), 2)
 np.random.seed(0)
@@ -51,7 +55,7 @@ res = minimize(
 coords = np.reshape(res.x, (len(Q), 2))
 qubits = dict(enumerate(coords))
 
-# Definizione del Registro. 
+# Definizione del Registro.
 # NOTA: Pulser verificherà in automatico se le distanze rispettano jade_device.min_atom_distance
 reg = Register(qubits)
 
@@ -78,19 +82,22 @@ seq.declare_channel("ising", "rydberg_global")
 seq.add(adiabatic_pulse, "ising")
 
 # 5. CONVERSIONE E SOTTOMISSIONE DEL JOB
-NBSHOTS = 10 # Eseguiamo 10 misurazioni fisiche. Intanto 10, per provare e per questioni di budget.
+NBSHOTS = 10  # Eseguiamo 10 misurazioni fisiche. Intanto 10, per provare e per questioni di budget.
 print(f"Preparazione del Job quantistico con {NBSHOTS} shots...")
 job = IsingAQPU.convert_sequence_to_job(seq, nbshots=NBSHOTS)
 
 print("Invio alla coda di Jade...")
 async_results = qpu.submit(job)
 
-# A questo punto il job è nel sistema. L'infrastruttura di JUNIQ ci fornisce 
+# A questo punto il job è nel sistema. L'infrastruttura di JUNIQ ci fornisce
 # un oggetto asincrono. Usando .join(), il nostro script si mette in pausa
 # e aspetta pazientemente che Jade faccia il suo lavoro.
-print("Job sottomesso! In attesa dei risultati dalla QPU (potrebbe volerci del tempo)...")
+print(
+    "Job sottomesso! In attesa dei risultati dalla QPU (potrebbe volerci del tempo)..."
+)
 results = async_results.join()
 print("Esecuzione completata!")
+
 
 # 6. RECUPERO E PLOT DEI RISULTATI
 # Usiamo la funzione originale del tutorial per estrarre le bitstringhe dal formato myQLM Result
@@ -101,6 +108,7 @@ def get_samples_from_result(result, n_qubits):
         bitstring = sample.state.bitstring.zfill(n_qubits)
         samples[bitstring] = sample.probability
     return samples
+
 
 # Estrazione e ordinamento
 C = get_samples_from_result(results, len(Q))
