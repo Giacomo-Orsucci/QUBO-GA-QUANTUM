@@ -17,9 +17,10 @@ Questo file contiene la variante del problema QUBO del tutorial originale, ma ri
 L'idea è di, modificando il problema stesso, familiarizzare con la struttura di un algoritmo genetico, e poi fare un'analisi di sensibilità sui parametri più importanti (popolazione e mutazione) per capire come influenzano la convergenza.
 Una volta stressato il problema e familiarizzato con esso mediante GA, l'idea è di vedere come si comporta su di un problema
 10x10 e superiore, che sono dimensioni per cui Nelder-Mead e altri algoritmi classici diventano impraticabili, mentre GA e altri meta-heuristici possono ancora dare risultati interessanti.
-Questa prima versione fa uso di coordinate continue, sicuramente dobbiamo passare ad una griglia (lattice). 
+Questa prima versione fa uso di coordinate continue, sicuramente dobbiamo passare ad una griglia (lattice) soprattutto al crescere del numero di atomi e quindi, dello spazio di ricerca.
 Si stampa l'errore medio su 10 esecuzioni, ma si prende la migliore per continuare con la parte quantistica 
 (ancora da implementare).
+Simuliamo senza rumore, quello che vogliamo quantificare direttamente su Jade.
 """
 
 
@@ -234,3 +235,96 @@ plt.tight_layout()
 plt.show()
 
 print("--- RICERCA COMPLETATA ---")
+
+# ==========================================
+# 5. PASSAGGIO ALLA FASE QUANTISTICA (Pulser)
+# ==========================================
+print(f"\n--- AVVIO SIMULAZIONE QUANTISTICA (QAA) ---")
+print(f"Utilizzo la migliore configurazione trovata ({best_overall_name}) con errore {best_overall_error:.4f}")
+
+# Creiamo il dizionario dei qubit usando stringhe come chiavi ("q0", "q1", ...) per Pulser
+# best_overall_coords contiene le (X,Y) perfette calcolate dal GA
+qubits = {f"q{i}": coord for i, coord in enumerate(best_overall_coords)}
+reg = Register(qubits)
+
+# Disegniamo il registro spaziale trovato dal GA
+print("Visualizzazione del layout spaziale degli atomi...")
+reg.draw(
+    blockade_radius=FRESNEL_DEVICE.rydberg_blockade_radius(1.0),
+    draw_graph=False,
+    draw_half_radius=True,
+)
+
+# ==========================================
+# 6. DEFINIZIONE DELL'IMPULSO ADIABATICO
+# ==========================================
+# Calcoliamo l'intensità del laser (Omega) basandoci sulla matrice Q,
+# assicurandoci di non superare il limite fisico dell'hardware FRESNEL.
+max_amp = FRESNEL_DEVICE.channels["rydberg_global"].max_amp
+Omega = min(np.median(Q[Q > 0].flatten()), max_amp)
+
+delta_0 = -5  
+delta_f = -delta_0  
+T = 4000  # 4 microsecondi (tempo di evoluzione adiabatico)
+
+# Creazione della forma d'onda a campana per evitare shock energetici
+adiabatic_pulse = Pulse(
+    InterpolatedWaveform(T, [1e-9, Omega, 1e-9]), 
+    InterpolatedWaveform(T, [delta_0, 0, delta_f]), 
+    0, 
+)
+
+# Inizializziamo la sequenza e assegniamo il laser globale
+seq = Sequence(reg, FRESNEL_DEVICE)
+seq.declare_channel("ising", "rydberg_global")
+seq.add(adiabatic_pulse, "ising")
+
+# ==========================================
+# 7. ESECUZIONE SIMULAZIONE (MyQLM)
+# ==========================================
+print("Esecuzione della simulazione adiabatica in corso (calcolo funzioni d'onda)...")
+job = IsingAQPU.convert_sequence_to_job(seq, nbshots=NBSHOTS, modulation=MODULATION)
+
+# Configurazione del backend locale
+MyQLMPulserSimBackend = IsingAQPU.from_sequence(seq, qpu=None)
+MYQLM_BACKEND = MyQLMPulserSimBackend if LOCAL_SIMULATIONS else AnalogQPU()
+
+results = MYQLM_BACKEND.submit(job)
+
+# ==========================================
+# 8. VISUALIZZAZIONE RISULTATI QUANTISTICI
+# ==========================================
+def get_samples_from_result(result: Result):
+    """Estrae le probabilità degli stati quantistici dal risultato MyQLM"""
+    samples = {}
+    n_qubits = len(qubits)
+    for sample in result.raw_data:
+        if len(sample.state.bitstring) > n_qubits:
+            raise ValueError(f"State {sample.state} is incompatible.")
+        counts = sample.probability
+        samples[sample.state.bitstring.zfill(n_qubits)] = counts
+    return samples
+
+def plot_distribution(result: Result):
+    """Plotta l'istogramma colorando di rosso le soluzioni corrette"""
+    C = get_samples_from_result(result)
+    
+    # Ordiniamo i risultati per probabilità decrescente
+    C = dict(sorted(C.items(), key=lambda item: item[1], reverse=True))
+    
+    # Le due soluzioni ottimali note del nostro problema QUBO. Specifiche per la nostra matrice Q.
+    indexes = ["01011", "00111"]  
+    color_dict = {key: "r" if key in indexes else "g" for key in C}
+    
+    plt.figure(figsize=(12, 6))
+    plt.xlabel("Bitstrings (Stati Quantistici Finali)", fontsize=12)
+    plt.ylabel("Probabilità di Misurazione", fontsize=12)
+    plt.bar(C.keys(), C.values(), width=0.5, color=color_dict.values())
+    plt.xticks(rotation="vertical")
+    
+    # Inseriamo nel titolo l'info sull'embedding genetico usato
+    plt.title(f"Distribuzione QAA - Basata su Embedding Genetico ({best_overall_name} | Err: {best_overall_error:.2f})", fontsize=14)
+    plt.tight_layout()
+    plt.show()
+
+plot_distribution(results)
