@@ -1,2 +1,1 @@
-First repository containig first experiments. Possibly messy, but massively commented (for the moment in Italian). Probably the name is not exact, this repo is bornt to
-contain first ideas and works and to be a testing ground for ideas.
+This is a first experiments repository, built to be a testing ground for initial ideas and experiments. The code might be a bit messy, but it serves as a sandbox for learning and prototyping. Every script is heavily commented (currently in Italian, as this is a private workspace) to clearly highlight its purpose.
