@@ -10,6 +10,8 @@ from qat.core import Result
 from pulser_myqlm import FresnelQPU, IsingAQPU
 
 #(Tutorial: https://github.com/pasqal-io/Pulser-myQLM/blob/main/tutorials/QAOA%20and%20QAA%20to%20solve%20a%20QUBO%20problem.ipynb)
+#MODIFICHE/AGGIUNTE: ottimizzazione eseguita 10 volte per mitigare leggermente la sensibilità di Nelder-Mead ai minimi locali
+#e confrontare l'errore (e quindi la soluzione migliore) con quello ottenuto grazie a GA.
 
 
 # Creiamo una rappresentazione virtuale della QPU Fresnel di Pasqal.
@@ -93,25 +95,43 @@ def evaluate_mapping(new_coords, *args):
 shape = (len(Q), 2)
 costs = []
 np.random.seed(0)
-# Partiamo da una disposizione di coordinate 2D casuale
-x0 = np.random.random(shape).flatten()
 
-# L'algoritmo classico Nelder-Mead sposta gli atomi nello spazio virtuale fino a minimizzare
-# l'errore calcolato dalla funzione evaluate_mapping.
-res = minimize(
-    evaluate_mapping,
-    x0,
-    args=(Q, shape),
-    method="Nelder-Mead",
-    tol=1e-6,
-    options={"maxiter": 200000, "maxfev": None},
-)
-coords = np.reshape(res.x, (len(Q), 2))
+best_error = float('inf')
+best_coords = None
+best_res = None
 
-# Registriamo le coordinate vincenti nel Registro fisico della macchina (stiamo programmando la disposizione degli atomi).
-# sulla base del problema.
+for i in range(10):  # Run the optimization multiple times to mitigate local minima
+    # Partiamo da una disposizione di coordinate 2D casuale ad ogni iterazione
+    x0 = np.random.random(shape).flatten()
+    # L'algoritmo classico Nelder-Mead sposta gli atomi nello spazio virtuale fino a minimizzare
+    # l'errore calcolato dalla funzione evaluate_mapping.
+    res = minimize(
+        evaluate_mapping,
+        x0,
+        args=(Q, shape),
+        method="Nelder-Mead",
+        tol=1e-6,
+        options={"maxiter": 200000, "maxfev": None},
+    )
+
+    # res.fun contiene il valore restituito da evaluate_mapping (il nostro errore)
+    current_error = res.fun
+    print(f"Iterazione {i+1} - Errore: {current_error:.4f}")
+
+    # Se troviamo un errore minore, aggiorniamo la nostra migliore soluzione
+    if current_error < best_error:
+        best_error = current_error
+        best_res = res
+        best_coords = np.reshape(res.x, (len(Q), 2))
+
+print(f"\nOttimizzazione completata. Miglior errore trovato: {best_error:.4f}")
+
+# Registriamo le coordinate VINCENTI nel Registro fisico della macchina
+coords = best_coords
 qubits = dict(enumerate(coords))
 reg = Register(qubits)
+
+
 # Disegniamo il registro. draw_half_radius=True mostra visivamente il Blocco di Rydberg:
 # se due aloni si sovrappongono, gli atomi non potranno eccitarsi simultaneamente.
 reg.draw(
@@ -238,9 +258,15 @@ for T in 1000 * np.linspace(1, 10, 10):
 
 
 
-#RESULTS PLOTTING
+# RESULTS PLOTTING
 plt.figure(figsize=(12, 6))
-plt.plot(range(1, 11), np.array(cost), "--o")
-plt.xlabel("total time evolution (µs)", fontsize=14)
-plt.ylabel("cost", fontsize=14)
+plt.plot(range(1, 11), np.array(cost), "--o", color="blue", label="Costo Quantistico Medio")
+
+# Aggiungiamo il best_error nel titolo del grafico in modo che sia subito visibile
+plt.title(f"Impatto del tempo T sulle performance quantistiche\n(Errore di embedding fisico: {best_error:.6f})", fontsize=15)
+
+plt.xlabel("Total time evolution T (µs)", fontsize=14)
+plt.ylabel("Cost", fontsize=14)
+plt.grid(True, linestyle="--", alpha=0.6)
+plt.legend(fontsize=12)
 plt.show()
