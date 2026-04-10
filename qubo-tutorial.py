@@ -22,8 +22,8 @@ FRESNEL_QPU = FresnelQPU(None)
 # Il simulatore userà questo oggetto per impedirci di programmare sequenze impossibili in natura.
 FRESNEL_DEVICE = Device.from_abstract_repr(FRESNEL_QPU.get_specs().description)
 
-# Assicuriamo che i calcoli in locale.
-LOCAL_SIMULATIONS = True
+# Assicuriamo che i calcoli siano eseguiti in locale o meno.
+LOCAL_SIMULATIONS = False
 
 # NBSHOTS = 0 indica che in locale il simulatore eseguirà internamente 2000 misurazioni
 # per costruire la distribuzione statistica finale. MODULATION=False mantiene le onde del laser perfette e ideali.

@@ -1,21 +1,35 @@
 import numpy as np
-from pulser import InterpolatedWaveform, Pulse, Sequence
-from pulser.devices import Device
+from pulser import InterpolatedWaveform, Pulse, Sequence, Register
+from pulser.devices import MockDevice
 from pulser_myqlm import IsingAQPU
-
-
-from os import getenv
 from qat.qlmaas.connection import QLMaaSConnection
+from scipy.spatial.distance import pdist, squareform
+from scipy.optimize import minimize
+import matplotlib.pyplot as plt
 
-connection = QLMaaSConnection()
+#(Tutorial: https://github.com/pasqal-io/Pulser-myQLM/blob/main/tutorials/QAOA%20and%20QAA%20to%20solve%20a%20QUBO%20problem.ipynb)
+#MODIFICHE/AGGIUNTE: Variante per l'esecuzione su infrastruttura remota HPC JULIC. Al momento settata per eseguire su AnalogQPU, Jade in trasferimento in altra struttura.
 
-from qlmaas.qpus import JadeQPU as QPU
+#NOTA BENE: In questa fase lo script, a scopo di test, è scritto in maniera tale da aspettare asincronicamente i risultati,
+#ma nulla vieta di essere interrotto dopo l'invio e recuperarli in un secondo momento tramite id.
 
-# Build device and register from QPU specs
-qpu = QPU()
-specs = qpu.get_specs()
-device = Device.from_abstract_repr(specs.description)
-device.print_specs()
+# 1. & 2. CONNESSIONE E SELEZIONE EMULATORE (Metodo Robusto)
+print("Inizializzazione dell'emulatore remoto AnalogQPU...")
+
+try:
+    # Tenta il caricamento diretto tramite il wrapper di Jülich (come facevi per Jade)
+    from qlmaas.qpus import AnalogQPU
+    qpu_emulator = AnalogQPU()
+    print("Emulatore caricato tramite qlmaas.qpus!")
+except ImportError:
+    # Se fallisce, usa la classe base standard di myQLM che sappiamo essere presente
+    from qat.qlmaas.qpus import QLMaaSQPU
+    qpu_emulator = QLMaaSQPU("qat.qpus:AnalogQPU")
+    print("Emulatore caricato tramite classe base QLMaaSQPU!")
+
+# 3. DEFINIZIONE DEVICE ASTRATTO
+# Usiamo MockDevice che è un template generico per atomi neutri
+device = MockDevice
 
 # 2. DEFINIZIONE DEL PROBLEMA QUBO
 Q = np.array(
@@ -29,12 +43,12 @@ Q = np.array(
 )
 
 
-# 3. MAPPATURA SPAZIALE (Usando i parametri di Jade)
+# 3. MAPPATURA SPAZIALE 
 def evaluate_mapping(new_coords, *args):
     Q, shape = args
     new_coords = np.reshape(new_coords, shape)
-    # Calcolo usando il VERO coefficiente di Van der Waals di Jade
-    new_Q = squareform(jade_device.interaction_coeff / pdist(new_coords) ** 6)
+    # Calcolo usando il VERO coefficiente del simulatore/macchina
+    new_Q = squareform(device.interaction_coeff / pdist(new_coords) ** 6)
     return np.linalg.norm(new_Q - Q)
 
 
@@ -53,17 +67,25 @@ res = minimize(
 )
 
 coords = np.reshape(res.x, (len(Q), 2))
-qubits = dict(enumerate(coords))
+qubits = {f"q{i}": coord for i, coord in enumerate(coords)}
 
 # Definizione del Registro.
-# NOTA: Pulser verificherà in automatico se le distanze rispettano jade_device.min_atom_distance
+# NOTA: Pulser verificherà in automatico se le distanze rispettano device.min_atom_distance
 reg = Register(qubits)
 
 # 4. CREAZIONE DEGLI IMPULSI LASER ADIABATICI
-# Vogliamo che l'Omega sia proporzionale alla matrice Q, MA non deve superare il limite fisico di Jade
+# Vogliamo che l'Omega sia proporzionale alla matrice Q, MA non deve superare il limite fisico quando applicato a macchina reale e non simulata
 ideal_omega = np.median(Q[Q > 0].flatten())
-max_jade_omega = jade_device.max_amp / 1.2  # Ci teniamo un margine di sicurezza
-Omega = min(ideal_omega, max_jade_omega)
+
+# Controlliamo se il device ha un limite fisico (il MockDevice restituisce None)
+channel_max_amp = device.channels["rydberg_global"].max_amp
+if channel_max_amp is not None:
+    max_omega = channel_max_amp / 1.2
+    Omega = min(ideal_omega, max_omega)
+else:
+    # Se non c'è limite, usiamo l'Omega ideale senza restrizioni
+    Omega = ideal_omega
+
 
 delta_0 = -5.0
 delta_f = -delta_0
@@ -76,8 +98,8 @@ adiabatic_pulse = Pulse(
     0,
 )
 
-# Costruiamo la sequenza per Jade
-seq = Sequence(reg, jade_device)
+# Costruiamo la sequenza 
+seq = Sequence(reg, device)
 seq.declare_channel("ising", "rydberg_global")
 seq.add(adiabatic_pulse, "ising")
 
@@ -86,16 +108,12 @@ NBSHOTS = 10  # Eseguiamo 10 misurazioni fisiche. Intanto 10, per provare e per 
 print(f"Preparazione del Job quantistico con {NBSHOTS} shots...")
 job = IsingAQPU.convert_sequence_to_job(seq, nbshots=NBSHOTS)
 
-print("Invio alla coda di Jade...")
-async_results = qpu.submit(job)
+print("Invio all'emulatore remoto (AnalogQPU) tramite QLMaaS...")
+async_results = qpu_emulator.submit(job)
 
-# A questo punto il job è nel sistema. L'infrastruttura di JUNIQ ci fornisce
-# un oggetto asincrono. Usando .join(), il nostro script si mette in pausa
-# e aspetta pazientemente che Jade faccia il suo lavoro.
-print(
-    "Job sottomesso! In attesa dei risultati dalla QPU (potrebbe volerci del tempo)..."
-)
-results = async_results.join()
+# Usiamo .join() perché la chiamata è tornata asincrona
+print("Job in coda sul cluster. In attesa dei risultati...")
+results = async_results.join() 
 print("Esecuzione completata!")
 
 
@@ -122,7 +140,7 @@ plt.figure(figsize=(12, 6))
 plt.bar(C.keys(), C.values(), width=0.5, color=color_dict.values())
 plt.xlabel("Configurazioni Misurate (Bitstrings)", fontsize=12)
 plt.ylabel("Probabilità / Frequenza", fontsize=12)
-plt.title("Risultati del Calcolo Ibrido su Jade (Pasqal QPU)", fontsize=14)
+plt.title("Risultati dell'Emulazione Remota (Device: MockDevice, Solver: AnalogQPU)", fontsize=14)
 plt.xticks(rotation="vertical")
 plt.tight_layout()
 plt.show()
