@@ -104,7 +104,7 @@ seq.declare_channel("ising", "rydberg_global")
 seq.add(adiabatic_pulse, "ising")
 
 # 5. CONVERSIONE E SOTTOMISSIONE DEL JOB
-NBSHOTS = 10  # Eseguiamo 10 misurazioni fisiche. Intanto 10, per provare e per questioni di budget.
+NBSHOTS = 0  # Eseguiamo 10 misurazioni fisiche. Intanto 10, per provare e per questioni di budget.
 print(f"Preparazione del Job quantistico con {NBSHOTS} shots...")
 job = IsingAQPU.convert_sequence_to_job(seq, nbshots=NBSHOTS)
 
