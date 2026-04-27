@@ -39,15 +39,32 @@ N_ATOMS = len(Q)
 # --- 3. MOTORE GENETICO: PyGAD PER L'EMBEDDING ---
 print("\nAvvio Algoritmo Genetico (PyGAD) per l'embedding spaziale...")
 
-# Normalizziamo Q_target (ignorando la diagonale) per il calcolo dell'errore. Tramite GA ci interessa
-# mappare le interezioni tra coppie di elementi, non ci interessa quindi la diagonale (che sarà invece protagonista del raggio di detuning).
-Q_off_diag = Q.copy()
-np.fill_diagonal(Q_off_diag, 0)
-max_Q = np.max(Q_off_diag)
 
 # Parametri fisici vincolanti
 MIN_DIST = 4.0 # micrometri (distanza limite tipica dei tweezer)
 FOV = 40.0 # Field of view (+/- 40 micrometri). Conservativo, Jade dovrebbe permettere fino a +/- 50
+
+# Estrazione dei termini quadratici (interazioni spaziali)
+Q_off_diag = Q.copy()
+np.fill_diagonal(Q_off_diag, 0)
+
+# --- IL FATTORE DI SCALA (NORMALIZZAZIONE FISICA) ---
+# 1. Qual è il potenziale massimo tollerato dall'hardware? (Energia a MIN_DIST)
+V_max_allowed = device.interaction_coeff / (MIN_DIST**6)
+
+# 2. Qual è il peso quadratico più grande nel nostro QUBO?
+Q_max_weight = np.max(Q_off_diag)
+
+# 3. Fattore di scala proporzionale
+scale_factor = V_max_allowed / Q_max_weight
+
+# 4. Creiamo la Matrice Target: i pesi QUBO ora sono tradotti in veri potenziali fisici
+Q_target = Q_off_diag * scale_factor
+
+print(f"Fattore di scala applicato: {scale_factor:.4f}")
+print(f"Max QUBO originale: {Q_max_weight} -> Max target fisico: {V_max_allowed:.2f}")
+
+
 
 def fitness_func(ga_instance, solution, solution_idx):
     coords = np.reshape(solution, (N_ATOMS, 2)) #solution è lineare di 10 atomi, lo portiamo ad essere matrice 5x2.
@@ -70,20 +87,63 @@ def fitness_func(ga_instance, solution, solution_idx):
     # PyGAD massimizza, quindi restituiamo l'inverso dell'errore
     return 1.0 / (error + 1e-6) #per evitare divisioni per 0 in caso di geometria perfetta (e quindi error=0)
 
+#Si introduce un meccanismo di estinzione che interviene se per un certo numero di generazioni 
+#l'evaluation della fitness function non cambia e probabilmente si è piantato su di un minimo locale
+
+# Variabili globali per la callback di estinzione
+last_best_fitness = 0.0
+stagnation_counter = 0
+STAGNATION_LIMIT = 40 # Se per 40 generazioni non migliora, interviene
+
+
+def on_generation(ga_instance):
+    global last_best_fitness, stagnation_counter
+    current_best = ga_instance.best_solution()[1]
+    
+    if current_best > last_best_fitness + 1e-6:
+        last_best_fitness = current_best
+        stagnation_counter = 0
+    else:
+        stagnation_counter += 1
+        
+    # Sostituzione di massa per uscire dai minimi locali
+    if stagnation_counter >= STAGNATION_LIMIT:
+        print(f" -> [Gen {ga_instance.generations_completed}] Ristagno rilevato! Sostituzione individui peggiori...")
+        num_replacements = int(ga_instance.sol_per_pop * 0.3)
+        
+        # Sostituisce il 30% peggiore con nuove coordinate casuali
+        new_genes = np.random.uniform(low=-FOV, high=FOV, size=(num_replacements, N_ATOMS * 2))
+        ga_instance.population[-num_replacements:] = new_genes
+        stagnation_counter = 0
+
 # Setup spazio dei geni (vincolati nel Field of View)
 gene_space = [{'low': -FOV, 'high': FOV} for _ in range(N_ATOMS * 2)]
 
 ga = pygad.GA(
-    num_generations=500,
-    num_parents_mating=10,
+    num_generations=800,
+    num_parents_mating=20, #facciamo riprodurre solo i 20 migliori candidati
     fitness_func=fitness_func,
-    sol_per_pop=50,
+    sol_per_pop=100, #dimensione popolazione
     num_genes=N_ATOMS * 2,
-    gene_space=gene_space,
-    mutation_type="random",
-    mutation_probability=0.3,
-    random_mutation_min_val=-2.0, # Jitter spaziale per fine-tuning
-    random_mutation_max_val=2.0,
+    gene_space=gene_space, #vincoli spaziali
+
+    # Conservazione e Selezione
+    parent_selection_type="tournament",
+    K_tournament=3, #"torneo" dove vince il migliore tra 3 pescati a caso tra tutti
+    keep_elitism=5, #i 5 candidati in assoluto miglori passano così come sono (senza mutazioni e selezione) alla gen successiva
+    crossover_type="uniform",
+
+    #alla metà peggiore viene applicato un alto tasso di mutazione (40%), mentre alla metà
+    #migliore un basso tasso di mutazione (5%)
+    mutation_type="adaptive",
+    mutation_probability=[0.4, 0.05],
+    
+    #la mutazione viene fatta aggiungengo un picccolo "rumore"
+    random_mutation_min_val=-3.0, 
+    random_mutation_max_val=3.0,
+    
+    allow_duplicate_genes=False,
+    on_generation=on_generation, # Callback per i minimi locali
     suppress_warnings=True
 )
 
