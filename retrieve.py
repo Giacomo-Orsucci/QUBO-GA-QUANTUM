@@ -7,7 +7,7 @@ from qat.qlmaas.connection import QLMaaSConnection
 
 
 # --- 1. JOB ID ---
-JOB_ID = "SJob204976"
+JOB_ID = "SJob207598"
 
 print(f"Connessione a Jülich in corso per cercare il Job: {JOB_ID}")
 connection = QLMaaSConnection()

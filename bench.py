@@ -49,111 +49,136 @@ Q_off_diag = Q.copy()
 np.fill_diagonal(Q_off_diag, 0)
 
 # --- IL FATTORE DI SCALA (NORMALIZZAZIONE FISICA) ---
-# 1. Qual è il potenziale massimo tollerato dall'hardware? (Energia a MIN_DIST)
+#si vanno a riscalare i valori fuori diagonale (che regolano le interazioni tra coppie di atomi)
+#così da non permettere la disposizione "alla deriva" di tali atomi derivante da un'eccessiva penalizzazione
+#di valori altrimenti erroneamente considerati troppo grandi.
+
+
+# 1. Limite Spaziale
 V_max_allowed = device.interaction_coeff / (MIN_DIST**6)
+Q_max_off_diag = np.max(Q_off_diag)
+scale_space = V_max_allowed / Q_max_off_diag if Q_max_off_diag > 0 else float('inf')
 
-# 2. Qual è il peso quadratico più grande nel nostro QUBO?
-Q_max_weight = np.max(Q_off_diag)
+# 2. Limite del Laser (Usiamo un limite di sicurezza, es. 40 rad/µs se il MockDevice non lo ha)
+channel = device.channels["rydberg_global"]
+max_detuning = channel.max_abs_detuning if channel.max_abs_detuning is not None else 40.0
+avg_linear_weight = np.mean(np.abs(np.diag(Q)))
+scale_laser = max_detuning / avg_linear_weight if avg_linear_weight > 0 else float('inf')
 
-# 3. Fattore di scala proporzionale
-scale_factor = V_max_allowed / Q_max_weight
+# 3. Il vero Fattore di Scala è il collo di bottiglia tra i due.
+scale_factor = min(scale_space, scale_laser)
 
 # 4. Creiamo la Matrice Target: i pesi QUBO ora sono tradotti in veri potenziali fisici
+# che possono essere usati nella valutazione della fitness function
 Q_target = Q_off_diag * scale_factor
+print(f"Fattore di scala (Spazio: {scale_space:.2f}, Laser: {scale_laser:.2f}) -> Scelto: {scale_factor:.4f}")
+
 
 print(f"Fattore di scala applicato: {scale_factor:.4f}")
-print(f"Max QUBO originale: {Q_max_weight} -> Max target fisico: {V_max_allowed:.2f}")
+print(f"Max QUBO originale: {Q_max_off_diag} -> Max target fisico: {V_max_allowed:.2f}")
 
-
+#Il GA si occupa di trovare la disposizione degli atomi sulla base dei valori fuori diagonale
+#mentre i valori sulla diagonale sono regolati dal detuning del raggio laser.
 
 def fitness_func(ga_instance, solution, solution_idx):
-    coords = np.reshape(solution, (N_ATOMS, 2)) #solution è lineare di 10 atomi, lo portiamo ad essere matrice 5x2.
-    
-    # per calcolare velocemente tutte le distanze reciproche
+    coords = np.reshape(solution, (N_ATOMS, 2))
     distances = pdist(coords)
     
-    # Penalità molto alta se gli atomi sono troppo vicini
+    # 1. Calcolo del potenziale fisico
+    # Aggiungiamo un piccolissimo epsilon (1e-9) per evitare divisioni per zero assolute
+    V_physical = squareform(device.interaction_coeff / ((distances + 1e-9) ** 6))
+    
+    # Estraiamo i triangoli superiori per il confronto
+    V_triu = V_physical[np.triu_indices(N_ATOMS, k=1)]
+    Q_triu = Q_target[np.triu_indices(N_ATOMS, k=1)]
+    
+    # 2. Errore Assoluto (MAE) al posto del Quadratico (MSE)
+    # Questo impedisce al decadimento 1/r^6 di "accecare" l'algoritmo
+    # facendogli ignorare le connessioni deboli (atomi lontani)
+    base_error = np.sum(np.abs(V_triu - Q_triu))
+    
+    # 3. Penalità Fluida (Soft Penalty)
+    penalty = 0.0
     if np.any(distances < MIN_DIST):
-        # Più violano il limite, più la penalità è alta
+        # Calcoliamo di quanto abbiamo violato il limite fisico
         violation = np.sum(np.clip(MIN_DIST - distances, 0, None))
-        return 1.0 / (1e6 * violation) #si penalizza restituendo una fitness function molto bassa
+        # Sommiamo una penalità proporzionale. Il fattore 50.0 è sufficiente 
+        # a rendere la soluzione sconveniente, ma non un "muro invalicabile".
+        penalty = violation * 50.0 
+        
+    total_error = base_error + penalty
     
-    # Calcolo della matrice delle interazioni fisiche generate da queste coordinate
-    V_physical = squareform(device.interaction_coeff / (distances ** 6))
-    
-    # Errore quadratico rispetto al QUBO target (consideriamo solo le upper-triangular per efficienza)
-    error = np.sum((V_physical[np.triu_indices(N_ATOMS, k=1)] - Q_off_diag[np.triu_indices(N_ATOMS, k=1)])**2)
-    
-    # PyGAD massimizza, quindi restituiamo l'inverso dell'errore
-    return 1.0 / (error + 1e-6) #per evitare divisioni per 0 in caso di geometria perfetta (e quindi error=0)
+    # Restituiamo l'inverso per massimizzare
+    return 1.0 / (total_error + 1e-6)
 
-#Si introduce un meccanismo di estinzione che interviene se per un certo numero di generazioni 
-#l'evaluation della fitness function non cambia e probabilmente si è piantato su di un minimo locale
-
-# Variabili globali per la callback di estinzione
+# --- PARAMETRI ESTINZIONE ---
+STAGNATION_LIMIT = 40
 last_best_fitness = 0.0
 stagnation_counter = 0
-STAGNATION_LIMIT = 40 # Se per 40 generazioni non migliora, interviene
 
+# Variabili per tenere traccia del "Campione Assoluto" tra tutte le run
+NUM_RESTARTS = 10 #restart casuali per prendere la migliore dellle n run
+best_overall_fitness = -float('inf')
+best_overall_coords = None
 
-def on_generation(ga_instance):
-    global last_best_fitness, stagnation_counter
-    current_best = ga_instance.best_solution()[1]
-    
-    if current_best > last_best_fitness + 1e-6:
-        last_best_fitness = current_best
-        stagnation_counter = 0
-    else:
-        stagnation_counter += 1
-        
-    # Sostituzione di massa per uscire dai minimi locali
-    if stagnation_counter >= STAGNATION_LIMIT:
-        print(f" -> [Gen {ga_instance.generations_completed}] Ristagno rilevato! Sostituzione individui peggiori...")
-        num_replacements = int(ga_instance.sol_per_pop * 0.3)
-        
-        # Sostituisce il 30% peggiore con nuove coordinate casuali
-        new_genes = np.random.uniform(low=-FOV, high=FOV, size=(num_replacements, N_ATOMS * 2))
-        ga_instance.population[-num_replacements:] = new_genes
-        stagnation_counter = 0
+print(f"\nAvvio di {NUM_RESTARTS} run indipendenti di PyGAD (Multi-Start Strategy)...")
 
-# Setup spazio dei geni (vincolati nel Field of View)
 gene_space = [{'low': -FOV, 'high': FOV} for _ in range(N_ATOMS * 2)]
 
-ga = pygad.GA(
-    num_generations=800,
-    num_parents_mating=20, #facciamo riprodurre solo i 20 migliori candidati
-    fitness_func=fitness_func,
-    sol_per_pop=100, #dimensione popolazione
-    num_genes=N_ATOMS * 2,
-    gene_space=gene_space, #vincoli spaziali
+for run_idx in range(NUM_RESTARTS):
+    # Reset per ogni nuova run
+    last_best_fitness = 0.0
+    stagnation_counter = 0
 
-    # Conservazione e Selezione
-    parent_selection_type="tournament",
-    K_tournament=3, #"torneo" dove vince il migliore tra 3 pescati a caso tra tutti
-    keep_elitism=5, #i 5 candidati in assoluto miglori passano così come sono (senza mutazioni e selezione) alla gen successiva
-    crossover_type="uniform",
+    def on_generation(ga_instance):
+        global last_best_fitness, stagnation_counter
+        current_best = ga_instance.best_solution()[1]
+        if current_best > last_best_fitness + 1e-6:
+            last_best_fitness = current_best
+            stagnation_counter = 0
+        else:
+            stagnation_counter += 1
+        if stagnation_counter >= STAGNATION_LIMIT:
+            num_replacements = int(ga_instance.sol_per_pop * 0.3)
+            new_genes = np.random.uniform(low=-FOV, high=FOV, size=(num_replacements, N_ATOMS * 2))
+            ga_instance.population[-num_replacements:] = new_genes
+            stagnation_counter = 0
 
-    #alla metà peggiore viene applicato un alto tasso di mutazione (40%), mentre alla metà
-    #migliore un basso tasso di mutazione (5%)
-    mutation_type="adaptive",
-    mutation_probability=[0.4, 0.05],
+    ga = pygad.GA(
+        num_generations=800,
+        num_parents_mating=20,
+        fitness_func=fitness_func,
+        sol_per_pop=100,
+        num_genes=N_ATOMS * 2,
+        gene_space=gene_space,
+        parent_selection_type="tournament",
+        K_tournament=3,
+        keep_elitism=5,
+        crossover_type="uniform",
+        mutation_type="adaptive",
+        mutation_probability=[0.4, 0.05],
+        random_mutation_min_val=-3.0, 
+        random_mutation_max_val=3.0,
+        allow_duplicate_genes=False,
+        on_generation=on_generation,
+        suppress_warnings=True
+    )
+
+    ga.run()
+    run_best_solution, run_best_fitness, _ = ga.best_solution()
     
-    #la mutazione viene fatta aggiungengo un picccolo "rumore"
-    random_mutation_min_val=-3.0, 
-    random_mutation_max_val=3.0,
-    
-    allow_duplicate_genes=False,
-    on_generation=on_generation, # Callback per i minimi locali
-    suppress_warnings=True
-)
+    if run_best_fitness > best_overall_fitness:
+        best_overall_fitness = run_best_fitness
+        best_overall_coords = np.reshape(run_best_solution, (N_ATOMS, 2))
+        print(f"  -> [Run {run_idx+1}/{NUM_RESTARTS}] Nuovo record! Fitness: {run_best_fitness:.4f}")
+    else:
+        print(f"  -> [Run {run_idx+1}/{NUM_RESTARTS}] Nessun miglioramento (Fitness: {run_best_fitness:.4f})")
 
-ga.run()
-best_solution, best_fitness, _ = ga.best_solution()
-coords = np.reshape(best_solution, (N_ATOMS, 2))
-print(f"Embedding completato. Fitness score: {best_fitness:.4f}")
+print(f"\nEmbedding Multi-Start completato! Useremo il Campione (Fitness: {best_overall_fitness:.4f})")
 
-# Creazione del Registro Pulser
-qubits = {f"q{i}": coord for i, coord in enumerate(coords)}
+# --- 3.5 CREAZIONE REGISTRO SPAZIALE---
+# USARE best_overall_coords
+qubits = {f"q{i}": coord for i, coord in enumerate(best_overall_coords)}
 reg = Register(qubits)
 
 print("Generazione del plot spaziale dei qubit...")
@@ -167,14 +192,17 @@ reg.draw(
 
 # --- 4. COSTRUZIONE SEQUENZA ADIABATICA ---
 print("Costruzione della sequenza adiabatica...")
-ideal_omega = np.median(Q_off_diag[Q_off_diag > 0])
+# La mediana deve essere calcolata sui pesi SCALATI
+ideal_omega = np.median(Q_target[Q_target > 0])
 channel_max_amp = device.channels["rydberg_global"].max_amp
 Omega = min(ideal_omega, channel_max_amp / 1.2) if channel_max_amp else ideal_omega
 
+scaled_delta = avg_linear_weight * scale_factor
+
 duration_us = 4
 T = duration_us * 1000 
-delta_0 = -5.0
-delta_f = -delta_0
+delta_0 = -scaled_delta
+delta_f = scaled_delta
 
 adiabatic_pulse = Pulse(
     InterpolatedWaveform(T, [1e-9, Omega, 1e-9]),
@@ -188,7 +216,7 @@ seq.add(adiabatic_pulse, "ising")
 
 # --- 5. ESECUZIONE SU JÜLICH HPC ---
 
-NBSHOTS = 0 
+NBSHOTS = 0  #per avere risultati esatti senza rumore
 print(f"Preparazione Job ({NBSHOTS} shots)...")
 job = IsingAQPU.convert_sequence_to_job(seq, nbshots=NBSHOTS)
 
@@ -209,7 +237,7 @@ plt.figure(figsize=(10, 5))
 plt.bar(samples.keys(), samples.values(), color="blue", alpha=0.7)
 plt.xlabel("Bitstrings")
 plt.ylabel("Probabilità")
-plt.title(f"Soluzioni Trovare - PyGAD + Pulser (Fitness GA: {best_fitness:.4f})")
+plt.title(f"Soluzioni Trovate - PyGAD Multi-Start (Best Fitness: {best_overall_fitness:.4f})")
 plt.xticks(rotation=45)
 plt.tight_layout()
 plt.show()
