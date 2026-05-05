@@ -6,23 +6,26 @@ from scipy.spatial.distance import pdist, squareform
 from pulser import InterpolatedWaveform, Pulse, Sequence, Register
 from pulser.devices import MockDevice
 from pulser_myqlm import IsingAQPU
+import dataclasses
+
 
 #WORK IN PROGRESS to build a classic/quantum hybrid script complete pipeline to test our GA
-#on ground truth benchmarks.
-
-
-# --- 1. SETUP DELL'EMULATORE REMOTO (JÜLICH via myQLM) ---
-print("Inizializzazione dell'emulatore remoto AnalogQPU...")
+#on ground truth benchmarks. This is the "playground" where to test and improve the GA to use it 
+#in hamburg_bench.py
+# --- 1. PROFILO FISICO (FAKE JADE) ---
 try:
-    from qlmaas.qpus import AnalogQPU
-    qpu_emulator = AnalogQPU()
-    print("Emulatore caricato tramite qlmaas.qpus!")
+    from pulser.devices import Jade as target_device
 except ImportError:
-    from qat.qlmaas.qpus import QLMaaSQPU
-    qpu_emulator = QLMaaSQPU("qat.qpus:AnalogQPU")
-    print("Emulatore caricato tramite classe base QLMaaSQPU!")
+    from pulser.devices import AnalogDevice
+    try:
+        target_device = dataclasses.replace(AnalogDevice, name="FakeJade", max_radial_distance=50)
+    except TypeError:
+        target_device = dataclasses.replace(AnalogDevice, name="FakeJade", maximum_radial_distance=50)
+    print("[AVVISO] Profilo Jade iniettato artificialmente (Raggio esteso a 50 µm).")
 
-device = MockDevice
+device = target_device
+MIN_DIST = device.min_atom_distance
+MAX_RADIUS = device.max_radial_distance if hasattr(device, 'max_radial_distance') else 50
 
 # --- 2. DEFINIZIONE DEL PROBLEMA QUBO ---
 # Hardcoded per test, ma qui andrà il parser per il benchmark ml-uhh
@@ -39,10 +42,11 @@ N_ATOMS = len(Q)
 # --- 3. MOTORE GENETICO: PyGAD PER L'EMBEDDING ---
 print("\nAvvio Algoritmo Genetico (PyGAD) per l'embedding spaziale...")
 
-
 # Parametri fisici vincolanti
-MIN_DIST = 4.0 # micrometri (distanza limite tipica dei tweezer)
-FOV = 40.0 # Field of view (+/- 40 micrometri). Conservativo, Jade dovrebbe permettere fino a +/- 50
+device = target_device
+MIN_DIST = device.min_atom_distance # micrometri (distanza limite tipica dei tweezer)
+
+# Field of view (+/- 40 micrometri). Conservativo, Jade dovrebbe permettere fino a +/- 50
 
 # Estrazione dei termini quadratici (interazioni spaziali)
 Q_off_diag = Q.copy()
@@ -99,16 +103,19 @@ def fitness_func(ga_instance, solution, solution_idx):
     
     # 3. Penalità Fluida (Soft Penalty)
     penalty = 0.0
+
+    # 1. Death Penalty: Distanza Minima (Collisioni)
     if np.any(distances < MIN_DIST):
-        # Calcoliamo di quanto abbiamo violato il limite fisico
         violation = np.sum(np.clip(MIN_DIST - distances, 0, None))
-        # Sommiamo una penalità proporzionale. Il fattore 50.0 è sufficiente 
-        # a rendere la soluzione sconveniente, ma non un "muro invalicabile".
-        penalty = violation * 50.0 
+        penalty += violation * 100000.0 
+        
+    # 2. Death Penalty: Raggio Massimo (Fuori dal laser)
+    radii = np.linalg.norm(coords, axis=1)
+    if np.any(radii > MAX_RADIUS):
+        violation = np.sum(np.clip(radii - MAX_RADIUS, 0, None))
+        penalty += violation * 100000.0
         
     total_error = base_error + penalty
-    
-    # Restituiamo l'inverso per massimizzare
     return 1.0 / (total_error + 1e-6)
 
 # --- PARAMETRI ESTINZIONE ---
@@ -123,7 +130,7 @@ best_overall_coords = None
 
 print(f"\nAvvio di {NUM_RESTARTS} run indipendenti di PyGAD (Multi-Start Strategy)...")
 
-gene_space = [{'low': -FOV, 'high': FOV} for _ in range(N_ATOMS * 2)]
+gene_space = [{'low': -MAX_RADIUS, 'high': MAX_RADIUS} for _ in range(N_ATOMS * 2)]
 
 for run_idx in range(NUM_RESTARTS):
     # Reset per ogni nuova run
@@ -140,7 +147,7 @@ for run_idx in range(NUM_RESTARTS):
             stagnation_counter += 1
         if stagnation_counter >= STAGNATION_LIMIT:
             num_replacements = int(ga_instance.sol_per_pop * 0.3)
-            new_genes = np.random.uniform(low=-FOV, high=FOV, size=(num_replacements, N_ATOMS * 2))
+            new_genes = np.random.uniform(low=-MAX_RADIUS, high=MAX_RADIUS, size=(num_replacements, N_ATOMS * 2))
             ga_instance.population[-num_replacements:] = new_genes
             stagnation_counter = 0
 
@@ -215,12 +222,18 @@ seq.declare_channel("ising", "rydberg_global")
 seq.add(adiabatic_pulse, "ising")
 
 # --- 5. ESECUZIONE SU JÜLICH HPC ---
+# Inizializza l'emulatore (se non lo avevi fatto)
+try:
+    from qlmaas.qpus import AnalogQPU
+    qpu_emulator = AnalogQPU()
+except ImportError:
+    from qat.qlmaas.qpus import QLMaaSQPU
+    qpu_emulator = QLMaaSQPU("qat.qpus:AnalogQPU")
 
-NBSHOTS = 0  #per avere risultati esatti senza rumore
-print(f"Preparazione Job ({NBSHOTS} shots)...")
-job = IsingAQPU.convert_sequence_to_job(seq, nbshots=NBSHOTS)
+job = IsingAQPU.convert_sequence_to_job(seq, nbshots=0)
 
-print("Job inviato. In attesa dei risultati asincroni...")
+print(f"  -> Invio pacchetto alla coda remota (HW: {device.name})...")
+# UN SINGOLO INVIO ASINCRONO
 results = qpu_emulator.submit(job).join()
 print("Esecuzione completata!")
 
@@ -230,14 +243,13 @@ for sample in results.raw_data:
     bitstring = sample.state.bitstring.zfill(N_ATOMS)
     samples[bitstring] = sample.probability
 
-# Ordina in base alla probabilità
 samples = dict(sorted(samples.items(), key=lambda item: item[1], reverse=True))
 
 plt.figure(figsize=(10, 5))
-plt.bar(samples.keys(), samples.values(), color="blue", alpha=0.7)
+plt.bar(list(samples.keys())[:30], list(samples.values())[:30], color="blue", alpha=0.7)
 plt.xlabel("Bitstrings")
 plt.ylabel("Probabilità")
-plt.title(f"Soluzioni Trovate - PyGAD Multi-Start (Best Fitness: {best_overall_fitness:.4f})")
-plt.xticks(rotation=45)
+plt.title(f"Top 30 Soluzioni Trovate (Best Fitness: {best_overall_fitness:.4f})")
+plt.xticks(rotation=45, ha='right')
 plt.tight_layout()
 plt.show()

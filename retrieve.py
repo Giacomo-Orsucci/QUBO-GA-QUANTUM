@@ -4,6 +4,7 @@ from os import getenv
 from qat.qlmaas.connection import QLMaaSConnection
 
 # Questo script è progettato per recuperare i risultati di un job eseguito su Jülich, utilizzando il QLMaaSConnection.
+# In questo caso lo script è specifico per il problema QUBO giocattolo usato come baseline.
 
 
 # --- 1. JOB ID ---
