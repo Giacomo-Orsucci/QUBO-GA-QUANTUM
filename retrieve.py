@@ -5,9 +5,12 @@ from itertools import product
 from os import getenv
 from qat.qlmaas.connection import QLMaaSConnection
 
+#This is the script to retrieve asynchronously the remote result indicating n_atoms, job_id and
+#benchmark file path
+
 # --- 0. SETUP INIZIALE ---
 N_ATOMS = 16
-JOB_ID = "SJob208517"
+JOB_ID = "SJob208562"
 FILE_PATH = "./qubo-bench/qubo-benchmark-main/generate/compsup/instances/2d_(4, 4)_precision256/seed00.npz"
 
 # --- 1. FUNZIONI DI SUPPORTO (LOADER E SOLUTORE CLASSICO) ---
@@ -34,6 +37,7 @@ def load_hamburg_matrix(file_path):
 
 def find_classical_ground_state(Q):
     """Esegue un calcolo Brute Force classico per trovare la soluzione ottima esatta."""
+    "Per le dimensioni finora trattate possiamo usare il brute force"
     print("  -> Calcolo del Vero Ground State Matematico (Brute Force)...")
     min_energy = float('inf')
     ground_states = []
@@ -95,7 +99,7 @@ bar_colors = ['green' if bit in veri_ground_states else 'blue' for bit in top_sa
 plt.figure(figsize=(14, 7))
 bars = plt.bar(top_samples.keys(), top_samples.values(), color=bar_colors, alpha=0.7)
 
-# Aggiungiamo una legenda personalizzata
+# Legenda personalizzata
 from matplotlib.patches import Patch
 legend_elements = [
     Patch(facecolor='blue', alpha=0.7, label='Misurazione QPU (Falsi Minimi Locali)'),

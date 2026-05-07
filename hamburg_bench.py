@@ -101,8 +101,25 @@ def optimize_embedding(Q, num_restarts=10):
     gene_space = [{'low': -MAX_RADIUS, 'high': MAX_RADIUS} for _ in range(N_ATOMS * 2)]
 
     # --- Calcolo Fattore di Scala ---
-    Q_off_diag = Q.copy()
-    np.fill_diagonal(Q_off_diag, 0)
+    # --- PRUNING DEL QUBO (Rimozione del rumore di fondo) ---
+    PRUNING_PERCENTAGE = 30 # Tagliamo il 30% dei legami più deboli
+    
+   #--- PRUNING ---#
+   #Commentare se non si vuole applicare.
+   # L'idea è di fare pruning di una percentuale di pesi minori (ad esempio un 30%) 
+   # Questo perchè i problemi densi mettono in difficoltà la pipeline
+   
+    # ottenimento di tutti i pesi assoluti esistenti (escludendo gli zeri)
+    pesi_esistenti = np.abs(Q_off_diag[Q_off_diag != 0])
+    
+    if len(pesi_esistenti) > 0:
+        #  valore soglia sotto cui cade il 30% dei legami
+        soglia = np.percentile(pesi_esistenti, PRUNING_PERCENTAGE)
+        print(f"  Applicazione pruning a valori sotto soglia < {soglia:.4f}")
+        
+        # Azzeramento di tutto ciò che sta sotto la soglia
+        Q_off_diag[np.abs(Q_off_diag) < soglia] = 0.0
+    # ---------------------------------------------------------
     V_max_allowed = device.interaction_coeff / (MIN_DIST**6)
     Q_max_off_diag = np.max(Q_off_diag)
     scale_space = V_max_allowed / Q_max_off_diag if Q_max_off_diag > 0 else float('inf')
@@ -215,11 +232,13 @@ def optimize_embedding(Q, num_restarts=10):
                 ga_instance.population[-num_replacements:] = new_genes
                 ga_state['stagnation'] = 0
 
+       #Cambio parametri per vedere se riusciamo a gestire meglio i problemi densi.
+       #I commenti riportano le vecchie parametrizzazioni
         ga = pygad.GA(
-            num_generations=800,
+            num_generations=1500, #800,
             num_parents_mating=20,
             fitness_func=topological_fitness_func,
-            sol_per_pop=100,
+            sol_per_pop=150,#100,
             num_genes=N_ATOMS * 2,
             gene_space=gene_space,
             parent_selection_type="tournament",
@@ -228,8 +247,8 @@ def optimize_embedding(Q, num_restarts=10):
             crossover_type="uniform",
             mutation_type="adaptive",
             mutation_probability=[0.4, 0.05],
-            random_mutation_min_val=-3.0, 
-            random_mutation_max_val=3.0,
+            random_mutation_min_val=-1.5,#-3.0, 
+            random_mutation_max_val=1.5,#3.0,
             allow_duplicate_genes=False,
             on_generation=on_generation,
             suppress_warnings=True
@@ -247,9 +266,9 @@ def optimize_embedding(Q, num_restarts=10):
 
     return best_overall_coords, best_overall_fitness, scale_factor
 
-# --- ESECUZIONE QUANTISTICA
+# --- ESECUZIONE QUANTISTICA (ASINCRONA) ---
 def run_quantum_job(Q, coords, scale_factor, qpu_emulator):
-    """Costruisce la sequenza e sottompone il job all'emulatore."""
+   #Costruisce la sequenza, mostra il plot e invia il job senza attendere.
     N_ATOMS = len(Q)
     device = target_device
     
@@ -261,8 +280,13 @@ def run_quantum_job(Q, coords, scale_factor, qpu_emulator):
     
     qubits = {f"q{i}": c for i, c in enumerate(coords)}
     reg = Register(qubits)
-    print("Embedding su registro")
+    
+    # === PLOT SPAZIALE (Bloccante per ispezione visiva) ===
+    
     reg.draw(blockade_radius=device.min_atom_distance, draw_half_radius=True, draw_graph=False)
+    
+    
+    # ======================================================
     
     ideal_omega = np.median(Q_target[Q_target > 0]) if np.any(Q_target > 0) else 1.0
     channel_max_amp = device.channels["rydberg_global"].max_amp
@@ -283,57 +307,34 @@ def run_quantum_job(Q, coords, scale_factor, qpu_emulator):
     seq.add(adiabatic_pulse, "ising")
 
     job = IsingAQPU.convert_sequence_to_job(seq, nbshots=0)
-
     print(f"  -> Invio pacchetto alla coda remota (HW: {device.name})...")
 
-    # --- 5. ESECUZIONE SU JÜLICH HPC ---
-
-    # --- CON SISTEMA DI RETRY ---
-
+    # --- INVIO ASINCRONO  ---
     MAX_RETRIES = 3
-    results = None
-    
     for attempt in range(MAX_RETRIES):
         try:
-            # Invio asincrono
             async_job = qpu_emulator.submit(job)
-            print(f"  -> [Tentativo {attempt+1}] Job accettato! In attesa della risoluzione quantistica...")
-            
-            # Attesa dei risultati
-            results = async_job.join()
-            print("  -> Risultati ricevuti da Jülich con successo!")
-            break 
+            try:
+                job_id = async_job.batch_id
+            except AttributeError:
+                job_id = str(async_job) 
+                
+            print(f"  -> [SUCCESSO] Job accettato da Jülich! ID assegnato: {job_id}")
+            return job_id, reg
             
         except Exception as e:
-            print(f"  -> [AVVISO] Connessione caduta durante il tentativo {attempt+1}: {e}")
+            print(f"  -> [AVVISO] Connessione caduta (Tentativo {attempt+1}): {e}")
             if attempt < MAX_RETRIES - 1:
-                print("  -> Attendo 10 secondi per far respirare la rete e riprovo...")
-                time.sleep(10)
+                print("  -> Attesa di 5 secondi e nuovo tentativo...")
+                time.sleep(5)
             else:
-                raise Exception("Jülich irraggiungibile o in timeout cronico dopo 3 tentativi.")
+                print("  -> [ERRORE FATALE] Jülich irraggiungibile.")
+                return "ERRORE_INVIO", reg
 
-    if results is None:
-        raise Exception("Nessun risultato ottenuto dall'emulatore.")
-    # ---------------------------------------------
-    
-    samples = {}
-    for sample in results.raw_data:
-        bitstring = sample.state.bitstring.zfill(N_ATOMS)
-        samples[bitstring] = sample.probability
-
-    samples = dict(sorted(samples.items(), key=lambda item: item[1], reverse=True))
-    top_bitstring = list(samples.keys())[0]
-    top_probability = list(samples.values())[0]
-    
-    return top_bitstring, top_probability, samples, reg
-
-# --- ORCHESTRATORE
-
+# --- ORCHESTRATORE ---
 def run_benchmark(dataset_folder, output_csv="benchmark_results.csv"):
 
-
     print("Inizializzazione dell'emulatore remoto AnalogQPU...")
-    # --- L'EMULATORE DEVE ESSERE INIZIALIZZATO QUI, UNA SOLA VOLTA ---
     try:
         from qlmaas.qpus import AnalogQPU
         qpu_emulator = AnalogQPU()
@@ -345,15 +346,13 @@ def run_benchmark(dataset_folder, output_csv="benchmark_results.csv"):
             print("[ERRORE FATALE] Emulatore non disponibile. Interruzione.")
             return
    
-   
-    # Cerchiamo sia file .npz che .csv
     files = glob.glob(os.path.join(dataset_folder, "*.npz")) + glob.glob(os.path.join(dataset_folder, "*.csv"))
     files.sort()
     
     print(f"\n--- INIZIO BENCHMARK: Trovati {len(files)} file in {dataset_folder} ---")
     results_list = []
     
-    for idx, file_path in enumerate(files[:1]):  #files[1] così per ora lavoro solo sulla prima istanza.
+    for idx, file_path in enumerate(files[:1]):  # files[:1] analizza solo il primo (seed00)
         filename = os.path.basename(file_path)
         print(f"\n[{idx+1}/{len(files)}] Analisi di: {filename}")
         
@@ -368,26 +367,37 @@ def run_benchmark(dataset_folder, output_csv="benchmark_results.csv"):
             start_classica = time.time()
             coords, fitness, scale = optimize_embedding(Q, num_restarts=10)
             tempo_classico = time.time() - start_classica
-            print(f"  -> Spazio ottimizzato. Fitness: {fitness:.4f}, Scala: {scale:.4f}")
+            print(f"  -> Spazio ottimizzato. Fitness Topologica: {fitness:.4f}, Scala: {scale:.4f}")
             
-            # FASE 2: QUANTISTICA
-            start_quantum = time.time()
-            top_bits, top_prob, samples, reg = run_quantum_job(Q, coords, scale, qpu_emulator)            
-            tempo_quantum = time.time() - start_quantum
-            print(f"  [OK] Soluzione QPU: {top_bits} (Prob: {top_prob:.2f})")
-            print(f"  [OK] Tempi -> GA: {round(tempo_classico,1)}s | QPU: {round(tempo_quantum,1)}s")
+            # FASE 2: QUANTISTICA (Invio asincrono)
+            job_id, reg = run_quantum_job(Q, coords, scale, qpu_emulator)            
             
+            print(f"  [OK] Fase classica completata in {round(tempo_classico,1)}s.")
+            print(f"  [AVVISO] Job {job_id} in esecuzione. Usa retrieve.py per i risultati.")
+            
+            # Salvataggio nel CSV
             results_list.append({
                 "Istanza": filename,
                 "N_Nodi": n_nodes,
                 "Fitness_Spaziale": round(fitness, 4),
                 "Fattore_Scala": round(scale, 4),
-                "Best_Bitstring": top_bits,
-                "Probabilita": round(top_prob, 4),
                 "Tempo_Classico_s": round(tempo_classico, 2),
-                "Tempo_Quantum_s": round(tempo_quantum, 2),
-                "Errore": "Nessuno"
+                "Jülich_Job_ID": job_id,
+                "Stato_Invio": "Inviato" if job_id != "ERRORE_INVIO" else "Fallito"
             })
+            
+        except Exception as e:
+            print(f"  [FALLITO] Errore critico su {filename}: {e}")
+            results_list.append({
+                "Istanza": filename,
+                "N_Nodi": n_nodes,
+                "Stato_Invio": str(e)
+            })
+            
+        # Salvataggio progressivo
+        pd.DataFrame(results_list).to_csv(output_csv, index=False)
+
+    print(f"\n--- INVIO BENCHMARK COMPLETATO! Controlla il file: {output_csv} ---")
 
 # ==========================================
 # ESECUZIONE

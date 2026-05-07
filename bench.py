@@ -11,6 +11,7 @@ import dataclasses
 #WORK IN PROGRESS to build a classic/quantum hybrid script complete pipeline to test our GA
 #on ground truth benchmarks. This is the "playground" where to test and improve the GA to use it 
 #in hamburg_bench.py
+
 # --- 1. PROFILO FISICO (FAKE JADE) ---
 try:
     from pulser.devices import Jade as target_device
@@ -27,7 +28,7 @@ MIN_DIST = device.min_atom_distance
 MAX_RADIUS = device.max_radial_distance if hasattr(device, 'max_radial_distance') else 50
 
 # --- 2. DEFINIZIONE DEL PROBLEMA QUBO ---
-# Hardcoded per test, ma qui andrà il parser per il benchmark ml-uhh
+# Hardcoded per test, ma sostituibile con il parser per il benchmark ml-uhh
 Q = np.array([
     [-10.0, 19.74, 19.74, 5.42, 5.42],
     [19.74, -10.0, 20.68, 0.18, 0.86],
@@ -53,16 +54,17 @@ np.fill_diagonal(Q_off_diag, 0)
 
 # --- IL FATTORE DI SCALA (NORMALIZZAZIONE FISICA) ---
 #si vanno a riscalare i valori fuori diagonale (che regolano le interazioni tra coppie di atomi)
-#così da non permettere la disposizione "alla deriva" di tali atomi derivante da un'eccessiva penalizzazione
+#così da non permettere la disposizione "alla deriva" (angoli del register) di tali atomi derivante da un'eccessiva penalizzazione
 #di valori altrimenti erroneamente considerati troppo grandi.
 
 
 # 1. Limite Spaziale
 V_max_allowed = device.interaction_coeff / (MIN_DIST**6)
 Q_max_off_diag = np.max(Q_off_diag)
+#fattore di scala per non penalizzare troppo le connessioni deboli
 scale_space = V_max_allowed / Q_max_off_diag if Q_max_off_diag > 0 else float('inf')
 
-# 2. Limite del Laser (Usiamo un limite di sicurezza, es. 40 rad/µs se il MockDevice non lo ha)
+# 2. Limite del Laser (Usiamo un limite di sicurezza, es. 40 rad/µs se il device non lo ha)
 channel = device.channels["rydberg_global"]
 max_detuning = channel.max_abs_detuning if channel.max_abs_detuning is not None else 40.0
 avg_linear_weight = np.mean(np.abs(np.diag(Q)))
@@ -263,7 +265,7 @@ seq.declare_channel("ising", "rydberg_global")
 seq.add(adiabatic_pulse, "ising")
 
 # --- 5. ESECUZIONE SU JÜLICH HPC ---
-# Inizializza l'emulatore (se non lo avevi fatto)
+# Inizializza l'emulatore (se non era stato fatto)
 try:
     from qlmaas.qpus import AnalogQPU
     qpu_emulator = AnalogQPU()
