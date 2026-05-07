@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 from scipy.spatial.distance import pdist, squareform
 
 from pulser import InterpolatedWaveform, Pulse, Sequence, Register
-from pulser.devices import MockDevice
 from pulser_myqlm import IsingAQPU
 import dataclasses
 
@@ -118,6 +117,48 @@ def fitness_func(ga_instance, solution, solution_idx):
     total_error = base_error + penalty
     return 1.0 / (total_error + 1e-6)
 
+
+# --- STRATEGY B: TOPOLOGICAL FITNESS ---
+def topological_fitness_func(ga_instance, solution, solution_idx):
+    coords = np.reshape(solution, (N_ATOMS, 2))
+    distances = pdist(coords)
+    
+    # 1. Calculate physical potential (adding 1e-9 to prevent division by zero)
+    V_physical = squareform(device.interaction_coeff / ((distances + 1e-9) ** 6))
+    
+    # Extract upper triangles for comparison
+    V_triu = V_physical[np.triu_indices(N_ATOMS, k=1)]
+    Q_triu = Q_target[np.triu_indices(N_ATOMS, k=1)]
+    
+    # 2. Topological Weighting
+    # Calculate how "important" each bond is in the original QUBO.
+    bond_importance = np.abs(Q_triu)
+    
+    # Normalize importance between 0 and 1 for numerical stability
+    if np.max(bond_importance) > 0:
+        bond_importance = bond_importance / np.max(bond_importance)
+    
+    # The error is no longer flat. We MULTIPLY the absolute error by the bond importance.
+    # The GA will now focus on preserving strong bonds and sacrificing weak ones.
+    base_error = np.sum(bond_importance * np.abs(V_triu - Q_triu))
+    
+    # 3. Soft Penalties
+    penalty = 0.0
+
+    # Death Penalty 1: Minimum Distance (Collisions)
+    if np.any(distances < MIN_DIST):
+        violation = np.sum(np.clip(MIN_DIST - distances, 0, None))
+        penalty += violation * 100000.0 
+        
+    # Death Penalty 2: Maximum Radius (Outside laser FOV)
+    radii = np.linalg.norm(coords, axis=1)
+    if np.any(radii > MAX_RADIUS):
+        violation = np.sum(np.clip(radii - MAX_RADIUS, 0, None))
+        penalty += violation * 100000.0
+        
+    total_error = base_error + penalty
+    return 1.0 / (total_error + 1e-6)
+
 # --- PARAMETRI ESTINZIONE ---
 STAGNATION_LIMIT = 40
 last_best_fitness = 0.0
@@ -154,7 +195,7 @@ for run_idx in range(NUM_RESTARTS):
     ga = pygad.GA(
         num_generations=800,
         num_parents_mating=20,
-        fitness_func=fitness_func,
+        fitness_func=topological_fitness_func,
         sol_per_pop=100,
         num_genes=N_ATOMS * 2,
         gene_space=gene_space,

@@ -33,16 +33,6 @@ except ImportError:
         target_device = dataclasses.replace(AnalogDevice, name="FakeJade", maximum_radial_distance=50)
     print("[AVVISO] Profilo Jade iniettato artificialmente (Raggio esteso a 50 µm).")
 
-# --- SETUP EMULATORE (Jülich via myQLM) ---
-try:
-    from qlmaas.qpus import AnalogQPU
-    from pulser_myqlm import IsingAQPU
-except ImportError:
-    try:
-        from qat.qlmaas.qpus import QLMaaSQPU
-        from pulser_myqlm import IsingAQPU
-    except ImportError:
-        print("[AVVISO] myQLM non trovato. L'esecuzione quantistica reale fallirà.")
 
 #--- PARSER DEI .CSV e .NPZ CONTENENTI I PROBLEMI DEL BENCHMARK ---
 def load_hamburg_matrix(file_path):
@@ -150,6 +140,47 @@ def optimize_embedding(Q, num_restarts=10):
             penalty += violation * 100000.0
             
         return 1.0 / (base_error + penalty + 1e-6)
+    
+    # --- STRATEGY B: TOPOLOGICAL FITNESS ---
+    def topological_fitness_func(ga_instance, solution, solution_idx):
+        coords = np.reshape(solution, (N_ATOMS, 2))
+        distances = pdist(coords)
+        
+        # 1. Calculate physical potential (adding 1e-9 to prevent division by zero)
+        V_physical = squareform(device.interaction_coeff / ((distances + 1e-9) ** 6))
+        
+        # Extract upper triangles for comparison
+        V_triu = V_physical[np.triu_indices(N_ATOMS, k=1)]
+        Q_triu = Q_target[np.triu_indices(N_ATOMS, k=1)]
+        
+        # 2. Topological Weighting
+        # Calculate how "important" each bond is in the original QUBO.
+        bond_importance = np.abs(Q_triu)
+        
+        # Normalize importance between 0 and 1 for numerical stability
+        if np.max(bond_importance) > 0:
+            bond_importance = bond_importance / np.max(bond_importance)
+        
+        # The error is no longer flat. We MULTIPLY the absolute error by the bond importance.
+        # The GA will now focus on preserving strong bonds and sacrificing weak ones.
+        base_error = np.sum(bond_importance * np.abs(V_triu - Q_triu))
+        
+        # 3. Soft Penalties
+        penalty = 0.0
+
+        # Death Penalty 1: Minimum Distance (Collisions)
+        if np.any(distances < MIN_DIST):
+            violation = np.sum(np.clip(MIN_DIST - distances, 0, None))
+            penalty += violation * 100000.0 
+            
+        # Death Penalty 2: Maximum Radius (Outside laser FOV)
+        radii = np.linalg.norm(coords, axis=1)
+        if np.any(radii > MAX_RADIUS):
+            violation = np.sum(np.clip(radii - MAX_RADIUS, 0, None))
+            penalty += violation * 100000.0
+            
+        total_error = base_error + penalty
+        return 1.0 / (total_error + 1e-6)
 
     # --- Esecuzione Multi-Start ---
     STAGNATION_LIMIT = 40
@@ -187,7 +218,7 @@ def optimize_embedding(Q, num_restarts=10):
         ga = pygad.GA(
             num_generations=800,
             num_parents_mating=20,
-            fitness_func=fitness_func,
+            fitness_func=topological_fitness_func,
             sol_per_pop=100,
             num_genes=N_ATOMS * 2,
             gene_space=gene_space,
@@ -230,6 +261,8 @@ def run_quantum_job(Q, coords, scale_factor, qpu_emulator):
     
     qubits = {f"q{i}": c for i, c in enumerate(coords)}
     reg = Register(qubits)
+    print("Embedding su registro")
+    reg.draw(blockade_radius=device.min_atom_distance, draw_half_radius=True, draw_graph=False)
     
     ideal_omega = np.median(Q_target[Q_target > 0]) if np.any(Q_target > 0) else 1.0
     channel_max_amp = device.channels["rydberg_global"].max_amp
@@ -248,11 +281,40 @@ def run_quantum_job(Q, coords, scale_factor, qpu_emulator):
     seq = Sequence(reg, device)
     seq.declare_channel("ising", "rydberg_global")
     seq.add(adiabatic_pulse, "ising")
-    
+
     job = IsingAQPU.convert_sequence_to_job(seq, nbshots=0)
+
     print(f"  -> Invio pacchetto alla coda remota (HW: {device.name})...")
-    results = qpu_emulator.submit(job).join()
-    print("  -> Job in coda su QLMaaS!")
+
+    # --- 5. ESECUZIONE SU JÜLICH HPC ---
+
+    # --- CON SISTEMA DI RETRY ---
+
+    MAX_RETRIES = 3
+    results = None
+    
+    for attempt in range(MAX_RETRIES):
+        try:
+            # Invio asincrono
+            async_job = qpu_emulator.submit(job)
+            print(f"  -> [Tentativo {attempt+1}] Job accettato! In attesa della risoluzione quantistica...")
+            
+            # Attesa dei risultati
+            results = async_job.join()
+            print("  -> Risultati ricevuti da Jülich con successo!")
+            break 
+            
+        except Exception as e:
+            print(f"  -> [AVVISO] Connessione caduta durante il tentativo {attempt+1}: {e}")
+            if attempt < MAX_RETRIES - 1:
+                print("  -> Attendo 10 secondi per far respirare la rete e riprovo...")
+                time.sleep(10)
+            else:
+                raise Exception("Jülich irraggiungibile o in timeout cronico dopo 3 tentativi.")
+
+    if results is None:
+        raise Exception("Nessun risultato ottenuto dall'emulatore.")
+    # ---------------------------------------------
     
     samples = {}
     for sample in results.raw_data:
@@ -268,16 +330,22 @@ def run_quantum_job(Q, coords, scale_factor, qpu_emulator):
 # --- ORCHESTRATORE
 
 def run_benchmark(dataset_folder, output_csv="benchmark_results.csv"):
+
+
     print("Inizializzazione dell'emulatore remoto AnalogQPU...")
+    # --- L'EMULATORE DEVE ESSERE INIZIALIZZATO QUI, UNA SOLA VOLTA ---
     try:
+        from qlmaas.qpus import AnalogQPU
         qpu_emulator = AnalogQPU()
-    except NameError:
+    except ImportError:
         try:
+            from qat.qlmaas.qpus import QLMaaSQPU
             qpu_emulator = QLMaaSQPU("qat.qpus:AnalogQPU")
-        except NameError:
+        except ImportError:
             print("[ERRORE FATALE] Emulatore non disponibile. Interruzione.")
             return
-
+   
+   
     # Cerchiamo sia file .npz che .csv
     files = glob.glob(os.path.join(dataset_folder, "*.npz")) + glob.glob(os.path.join(dataset_folder, "*.csv"))
     files.sort()
@@ -320,38 +388,6 @@ def run_benchmark(dataset_folder, output_csv="benchmark_results.csv"):
                 "Tempo_Quantum_s": round(tempo_quantum, 2),
                 "Errore": "Nessuno"
             })
-
-
-
-            # --- FASE DI PLOT ---
-            print("  -> Generazione Plot del Registro Spaziale...")
-            reg.draw(blockade_radius=target_device.min_atom_distance, draw_half_radius=True, draw_graph=False)
-            
-            print("  -> Generazione Plot dell'Istogramma Quantistico...")
-            plt.figure(figsize=(12, 6))
-            # Prendiamo solo i top 30 altrimenti con 65.536 stati si blocca tutto
-            top_samples = dict(list(samples.items())[:30]) 
-            plt.bar(top_samples.keys(), top_samples.values(), color="blue", alpha=0.7)
-            plt.xlabel("Bitstrings")
-            plt.ylabel("Probabilità")
-            plt.title(f"Top 30 Soluzioni - {filename} ({n_nodes} atomi)")
-            plt.xticks(rotation=45, ha='right')
-            plt.tight_layout()
-            plt.show()
-            # --------------------
-            
-        except Exception as e:
-            print(f"  [FALLITO] Errore su {filename}: {e}")
-            results_list.append({
-                "Istanza": filename,
-                "N_Nodi": n_nodes,
-                "Errore": str(e)
-            })
-            
-        # Salvataggio progressivo
-        pd.DataFrame(results_list).to_csv(output_csv, index=False)
-
-    print(f"\n--- BENCHMARK COMPLETATO! Dati salvati in: {output_csv} ---")
 
 # ==========================================
 # ESECUZIONE
