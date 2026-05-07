@@ -1,2 +1,2 @@
-Istanza,N_Nodi,Fitness_Spaziale,Fattore_Scala,Tempo_Classico_s,Jülich_Job_ID,Stato_Invio
-seed00.npz,16,0.0019,69.5294,546.71,<qat.qlmaas.result.AsyncResult object at 0x7be33a79d910>,Inviato
+Istanza,N_Nodi,Stato_Invio
+seed00.npz,16,name 'Q_off_diag' is not defined

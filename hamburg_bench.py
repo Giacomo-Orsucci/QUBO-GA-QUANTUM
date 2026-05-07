@@ -100,6 +100,11 @@ def optimize_embedding(Q, num_restarts=10):
     # Il gene space è un quadrato largo 100x100 (da -50 a +50)
     gene_space = [{'low': -MAX_RADIUS, 'high': MAX_RADIUS} for _ in range(N_ATOMS * 2)]
 
+
+    Q_off_diag = Q.copy()
+    np.fill_diagonal(Q_off_diag, 0)
+
+    
     # --- Calcolo Fattore di Scala ---
     # --- PRUNING DEL QUBO (Rimozione del rumore di fondo) ---
     PRUNING_PERCENTAGE = 30 # Tagliamo il 30% dei legami più deboli
