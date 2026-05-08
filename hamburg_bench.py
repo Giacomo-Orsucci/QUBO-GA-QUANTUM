@@ -17,8 +17,10 @@ from pulser_myqlm import IsingAQPU
 #on ground truth benchmarks.
 
 #Jade non è utilizzabile, quindi l'idea era di emularlo con mockdevice, ma
-#a quanto pare non è più ammesso usare un mockdevice (che aveva lo scopo di replicare i vincoli di Jade).
+#a quanto pare non è più ammesso usare un mockdevice (che avevo personalizzato allo scopo di replicare i vincoli di Jade).
 #Quindi, il tentativo è quello di usare AnalogDevice ma "forzarlo" con dei vincoli analoghi a Jade.
+#Ovviamente questo non era necessario, ma lo scopo è di far sì che la sperimentazione un domani
+#possa essere portata sulla macchina Jade reale senza troppi problemi
 
 try:
     from pulser.devices import Jade as target_device
@@ -113,6 +115,7 @@ def optimize_embedding(Q, num_restarts=10):
    #Commentare se non si vuole applicare.
    # L'idea è di fare pruning di una percentuale di pesi minori (ad esempio un 30%) 
    # Questo perchè i problemi densi mettono in difficoltà la pipeline
+   # (così come i problemi troppo sparsi)
    
     # ottenimento di tutti i pesi assoluti esistenti (escludendo gli zeri)
     pesi_esistenti = np.abs(Q_off_diag[Q_off_diag != 0])
@@ -164,6 +167,11 @@ def optimize_embedding(Q, num_restarts=10):
         return 1.0 / (base_error + penalty + 1e-6)
     
     # --- STRATEGY B: TOPOLOGICAL FITNESS ---
+    #esperimenti preliminari hanno mostrato che MSE penalizza troppo valori piccoli e MAE
+    #si focalizza troppo sul disporre precisamente anche valori di interazioni che indicano
+    #interazioni deboli. L'idea di topological fitness è quindi quella di andare a concentrarsi
+    #sull'importanza topologica della matrice, ovvero su quanto è importante ogni vincolo nel problema QUBO 
+    #originale.
     def topological_fitness_func(ga_instance, solution, solution_idx):
         coords = np.reshape(solution, (N_ATOMS, 2))
         distances = pdist(coords)
@@ -230,7 +238,7 @@ def optimize_embedding(Q, num_restarts=10):
                 ga_state['stagnation'] += 1
                 
             if ga_state['stagnation'] >= STAGNATION_LIMIT:
-                # Decommenta la riga sotto se vuoi vedere quante volte avviene un'estinzione
+                # Decommenta la riga sotto per quante volte avviene un'estinzione
                 # print(f"      [Run {run_idx+1}] Estinzione per stagnazione a gen {gen}. Inserimento nuovi geni...")
                 num_replacements = int(ga_instance.sol_per_pop * 0.3)
                 new_genes = np.random.uniform(low=-MAX_RADIUS, high=MAX_RADIUS, size=(num_replacements, N_ATOMS * 2))
@@ -249,9 +257,9 @@ def optimize_embedding(Q, num_restarts=10):
             parent_selection_type="tournament",
             K_tournament=3,
             keep_elitism=5,
-            crossover_type="uniform",
-            mutation_type="adaptive",
-            mutation_probability=[0.4, 0.05],
+            crossover_type="uniform", #crossover fatto mixando uniformemente caratteristiche dei genitori
+            mutation_type="adaptive", #tasso di mutazione che varia in base al valore ritornato dalla fitness
+            mutation_probability=[0.4, 0.05], #tasso di mutazione che diminuisce quando la fitness restituisce risultati buoni
             random_mutation_min_val=-1.5,#-3.0, 
             random_mutation_max_val=1.5,#3.0,
             allow_duplicate_genes=False,
@@ -357,7 +365,7 @@ def run_benchmark(dataset_folder, output_csv="benchmark_results.csv"):
     print(f"\n--- INIZIO BENCHMARK: Trovati {len(files)} file in {dataset_folder} ---")
     results_list = []
     
-    for idx, file_path in enumerate(files[:1]):  # files[:1] analizza solo il primo (seed00)
+    for idx, file_path in enumerate(files[:1]):  # files[:1] analizza solo il primo (seed00). Toglierlo per iterare su tutti i diversi seed.
         filename = os.path.basename(file_path)
         print(f"\n[{idx+1}/{len(files)}] Analisi di: {filename}")
         
@@ -369,15 +377,15 @@ def run_benchmark(dataset_folder, output_csv="benchmark_results.csv"):
         
         try:
             # FASE 1: CLASSICA
-            start_classica = time.time()
+            start_classic = time.time()
             coords, fitness, scale = optimize_embedding(Q, num_restarts=10)
-            tempo_classico = time.time() - start_classica
+            t_classic = time.time() - start_classic
             print(f"  -> Spazio ottimizzato. Fitness Topologica: {fitness:.4f}, Scala: {scale:.4f}")
             
             # FASE 2: QUANTISTICA (Invio asincrono)
             job_id, reg = run_quantum_job(Q, coords, scale, qpu_emulator)            
             
-            print(f"  [OK] Fase classica completata in {round(tempo_classico,1)}s.")
+            print(f"  [OK] Fase classica completata in {round(t_classic,1)}s.")
             print(f"  [AVVISO] Job {job_id} in esecuzione. Usa retrieve.py per i risultati.")
             
             # Salvataggio nel CSV
@@ -386,7 +394,7 @@ def run_benchmark(dataset_folder, output_csv="benchmark_results.csv"):
                 "N_Nodi": n_nodes,
                 "Fitness_Spaziale": round(fitness, 4),
                 "Fattore_Scala": round(scale, 4),
-                "Tempo_Classico_s": round(tempo_classico, 2),
+                "Tempo_Classico_s": round(t_classic, 2),
                 "Jülich_Job_ID": job_id,
                 "Stato_Invio": "Inviato" if job_id != "ERRORE_INVIO" else "Fallito"
             })
