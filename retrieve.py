@@ -10,7 +10,7 @@ from qat.qlmaas.connection import QLMaaSConnection
 
 # --- 0. SETUP INIZIALE ---
 N_ATOMS = 16
-JOB_ID = "SJob208583"
+JOB_ID = "SJob209619"
 FILE_PATH = "./qubo-bench/qubo-benchmark-main/generate/compsup/instances/2d_(4, 4)_precision256/seed00.npz"
 
 # --- 1. FUNZIONI DI SUPPORTO (LOADER E SOLUTORE CLASSICO) ---

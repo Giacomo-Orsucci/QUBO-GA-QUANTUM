@@ -1,0 +1,2 @@
+Istanza,N_Nodi,Stato_Invio
+seed00.npz,16,"Cannot import qpu 'IsingAQPU' from qlmaas.qpus (not all Qaptiva object can be imported with Qaptiva Access, most are QPUs, Plugins and Generators; other importables exist, but are explicitly specified in the API documentation)"
