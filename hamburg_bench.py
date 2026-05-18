@@ -416,12 +416,46 @@ def run_benchmark(dataset_folder, output_csv="benchmark_results.csv"):
 # ESECUZIONE
 # ==========================================
 if __name__ == "__main__":
-    # Sostituisci questo percorso con la cartella corretta della tua repository clonata.
-    # partire dalla cartella 2d_(4, 4) per fare un test rapido su 16 atomi.
-    TARGET_FOLDER = "./qubo-bench/qubo-benchmark-main/generate/compsup/instances/2d_(4, 4)_precision256"
+    print("Inizializzazione dell'emulatore remoto AnalogQPU...")
+    try:
+        from qlmaas.qpus import AnalogQPU
+        qpu_emulator = AnalogQPU()
+    except ImportError:
+        try:
+            from qat.qlmaas.qpus import QLMaaSQPU
+            qpu_emulator = QLMaaSQPU("qat.qpus:AnalogQPU")
+        except ImportError:
+            print("[AVVISO] Emulatore remoto non disponibile. Tento locale...")
+            from pulser_myqlm import IsingAQPU
+            qpu_emulator = IsingAQPU()
+            
+    # Puntiamo al file generato che si trova nella cartella corrente
+    dataset_folder = "." 
+    files = ["global_friendly_16.npz"]
     
-    # Nome del file in cui verranno salvati i risultati
-    OUTPUT_FILE = "risultati_benchmark_2d_4x4.csv"
+    print(f"\n--- INIZIO TEST SULLA MATRICE GLOBAL-FRIENDLY ---")
+    results_list = []
     
-    # Avvio dello script
-    run_benchmark(TARGET_FOLDER, output_csv=OUTPUT_FILE)
+    for filename in files:
+        if not os.path.exists(filename):
+            print(f"[ERRORE] File {filename} non trovato.")
+            continue
+            
+        print(f"\nAnalisi di: {filename}")
+        Q = load_hamburg_matrix(filename)
+        n_nodes = len(Q)
+        
+        try:
+            start_classic = time.time()
+            # Eseguiamo il tuo GA con la topological_fitness_func
+            coords, fitness, scale = optimize_embedding(Q, num_restarts=10)
+            t_classic = time.time() - start_classic
+            print(f"  -> Spazio ottimizzato. Fitness Topologica: {fitness:.4f}, Scala: {scale:.4f}")
+            
+            job_id, reg = run_quantum_job(Q, coords, scale, qpu_emulator)            
+            
+            print(f"  [OK] Fase classica completata in {round(t_classic,1)}s.")
+            print(f"  [INFO] Job {job_id} in esecuzione.")
+            
+        except Exception as e:
+            print(f"  [FALLITO] Errore: {e}")
