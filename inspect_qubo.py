@@ -1,13 +1,10 @@
 import numpy as np
 import os
 
-#File to visualize QUBO matrices from imported dataset. As we can see from the filepath below 
-#is necessary to import the desired dataset (in our case QUBO benchmark from university of Hamburgh: https://github.com/ml-uhh/qubo-benchmark/tree/main).
-
 # Percorso della matrice QUBO 16x16 2d_4x4 con seed00
-#file_path = "./qubo-bench/qubo-benchmark-main/generate/compsup/instances/2d_(4, 4)_precision256/seed00.npz"
 #file_path = "./qubo-bench/qubo-benchmark-main/instances/compsup/2d/2d_(4, 4)_precision256_seed18.npz"
-file_path = "./my_QUBO_instances/tutorial_5x5.npz"
+file_path = "./my_QUBO_instances/scaling_tests/friendly/global_friendly_5x5_d30_s100.npz"
+
 def inspect_and_print_matrix(path):
     if not os.path.exists(path):
         print(f"Errore: Il file {path} non esiste.")
@@ -32,35 +29,51 @@ def inspect_and_print_matrix(path):
             print(f"Dimensione: {n_nodes}x{n_nodes}\n")
 
             # --- Stampa della Matrice Numerica ---
-            # Header con i numeri di colonna
             header = "     " + "".join([f"{c:6}" for c in range(n_nodes)])
             print(header)
             print("-" * len(header))
 
             for r in range(n_nodes):
-                # Numero di riga
                 line = f"{r:2} | "
                 for c in range(n_nodes):
                     val = Q[r, c]
                     if val == 0:
-                        # Grigio per gli zeri
                         line += f"\033[90m{val:6.2f}\033[0m"
                     elif val > 0:
-                        # Rosso per i valori positivi (repulsione/penalità)
                         line += f"\033[91m{val:6.2f}\033[0m"
                     else:
-                        # Verde per i valori negativi (attrazione/premio)
                         line += f"\033[92m{val:6.2f}\033[0m"
                 print(line)
 
-            # --- Riepilogo Statistico ---
+            # --- Calcolo Statistiche Avanzate ---
+            # Valori fuori diagonale (termini quadratici)
             off_diag = Q[np.triu_indices(n_nodes, k=1)]
-            off_diag = off_diag[off_diag != 0]
+            actual_edges = off_diag[off_diag != 0]
             
-            print(f"\n--- Statistiche ---")
-            print(f"Valore quadratico minimo: {np.min(off_diag):.4f}")
-            print(f"Valore quadratico massimo: {np.max(off_diag):.4f}")
-            print(f"Deviazione Standard: {np.std(off_diag):.4f}")
+            # Valori sulla diagonale (termini lineari)
+            diag_vals = np.diag(Q)
+            
+            # 1. Densità
+            n_possible_edges = (n_nodes * (n_nodes - 1)) / 2
+            n_actual_edges = len(actual_edges)
+            density = n_actual_edges / n_possible_edges if n_possible_edges > 0 else 0
+            
+            # 2. Gradi dei nodi (quanti archi non nulli ha ogni nodo, escludendo sé stesso)
+            Q_off_diag_only = Q.copy()
+            np.fill_diagonal(Q_off_diag_only, 0)
+            node_degrees = np.sum(Q_off_diag_only != 0, axis=1)
+            
+            # 3. Dynamic Range
+            abs_edges = np.abs(actual_edges)
+            dynamic_range = np.max(abs_edges) / np.min(abs_edges) if (len(abs_edges) > 0 and np.min(abs_edges) > 0) else 0
+
+            print(f"\n--- Statistiche per Embedding ---")
+            print(f"Densità del Grafo:      {density * 100:.1f}% ({n_actual_edges}/{int(n_possible_edges)} archi)")
+            print(f"Grado Nodi (Min/Max):   {np.min(node_degrees)} / {np.max(node_degrees)} (Media: {np.mean(node_degrees):.1f})")
+            print(f"Range Pesi Quadratici:  Da {np.min(actual_edges):.4f} a {np.max(actual_edges):.4f}")
+            print(f"Dynamic Range (Max/Min): {dynamic_range:.1f}x")
+            print(f"Deviazione Std (Archi): {np.std(actual_edges):.4f}")
+            print(f"Media Diagonale (Lin):  {np.mean(np.abs(diag_vals)):.4f}")
 
             return Q
 

@@ -183,7 +183,7 @@ def optimize_embedding(Q, num_restarts=10):
         ga = pygad.GA(
             num_generations=800,
             num_parents_mating=20,
-            fitness_func=pure_mae_fitness_func, # Switch to mse_fitness_func to test MSE
+            fitness_func=topological_mae_fitness_func, # Switch to mse_fitness_func to test MSE
             sol_per_pop=100,
             num_genes=N_ATOMS * 2,
             gene_space=gene_space,
@@ -282,7 +282,8 @@ if __name__ == "__main__":
             from pulser_myqlm import IsingAQPU
             qpu_emulator = IsingAQPU()
 
-    TARGET_FILE = "./my_QUBO_instances/tutorial_5x5.npz"
+    TARGET_FILE ="./my_QUBO_instances/scaling_tests/friendly/global_friendly_5x5_d30_s100.npz"
+
     print(f"\n--- COMPILING BASE CASE: {TARGET_FILE} ---")
     
     Q = load_hamburg_matrix(TARGET_FILE)
@@ -313,7 +314,7 @@ if __name__ == "__main__":
             "Scale_Factor": round(scale, 4),
             "Classical_Time_s": round(t_classic, 2),
             "Juelich_Job_ID": job_id,
-            "Fitness_Metric": "Pure_MAE"  # Change to "MSE" when testing the other metric
+            "Fitness_Metric": "Topological_MAE"  # Change to "MSE" when testing the other metric
         }
         
         # If the file already exists, load the history and append the new row.
