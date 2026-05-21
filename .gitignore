@@ -163,7 +163,7 @@ src/*.proto
 src/*_pb2*.py
 
 #images
-Grafici/
+Grafici_ed_altro/
 
 #dataset
 qubo-bench/qubo-benchmark-main/

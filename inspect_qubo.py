@@ -3,7 +3,9 @@ import os
 
 # Percorso della matrice QUBO 16x16 2d_4x4 con seed00
 #file_path = "./qubo-bench/qubo-benchmark-main/instances/compsup/2d/2d_(4, 4)_precision256_seed18.npz"
-file_path = "./my_QUBO_instances/scaling_tests/friendly/global_friendly_5x5_d30_s100.npz"
+file_path = "./my_QUBO_instances/scaling_tests/friendly/global_friendly_6x6_d46.7_s100.npz"
+#file_path = "./my_QUBO_instances/tutorial_5x5.npz"
+
 
 def inspect_and_print_matrix(path):
     if not os.path.exists(path):

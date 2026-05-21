@@ -1,6 +1,8 @@
 import numpy as np
 import os
 
+
+#In realtà ho notato che la densità risultante è soggetta a varianza non trascurabile. Da valutare se è un pro o un contro
 def generate_qubo(n=5, density=0.25, seed=42):
     # Fissiamo il seed per la riproducibilità scientifica
     np.random.seed(seed)
