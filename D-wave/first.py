@@ -2,9 +2,9 @@ import numpy as np
 from dwave.system import LeapHybridSampler, DWaveSampler, EmbeddingComposite
 
 
-#Obvious suggestion: export the token on your environment, do not hardoce it here and do not push it on GitHub 
+#Obvious suggestion: export the token on your environment, do not hardcode it here and do not push it on GitHub 
 
-#very first implementation, but some pretests on the 2 matrices specified in file_path below, highlight a supremacy
+#very first implementation (to do:clean), but some pretests on the 2 matrices specified in file_path below, highlight a supremacy
 #of D-wave on QUBO problems: its more userfriendly, mature and with better performances.
 
 #But, in the near future I want to compare D-Wave on a set of problems that jade "likes" and maybe
@@ -176,9 +176,6 @@ def solve_with_dwave(file_path, use_hybrid=True):
         
     return best_solution
     
-    return best_solution
-
-
 
 
 #file_path = "../my_QUBO_instances/tutorial_5x5.npz"
