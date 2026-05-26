@@ -226,10 +226,10 @@ def optimize_embedding(Q, num_restarts=10):
     print(f"  -> Starting Multi-Start ({num_restarts} runs)...")
     for run_idx in range(num_restarts):
         ga = pygad.GA(
-            num_generations=1500, #base = 800
+            num_generations=1500, #base = 800, boost= 1500
             num_parents_mating=20,
             fitness_func=improved_topological_mae_fitness_func, # Switch to mse_fitness_func to test MSE
-            sol_per_pop=200, #base = 100
+            sol_per_pop=200, #base = 100, boost=200
             num_genes=N_ATOMS * 2,
             gene_space=gene_space,
             parent_selection_type="tournament",
@@ -330,7 +330,7 @@ if __name__ == "__main__":
     #TARGET_FILE ="./my_QUBO_instances/scaling_tests/friendly/global_friendly_5x5_d50_s100.npz"
     #TARGET_FILE ="./my_QUBO_instances/tutorial_5x5.npz"
     #TARGET_FILE ="./my_QUBO_instances/scaling_tests/friendly/global_friendly_6x6_d46.7_s100.npz"
-    TARGET_FILE = "./my_QUBO_instances/scaling_tests/jade_udg/jade_udg_6x6_R12_s48.npz"
+    TARGET_FILE = "./my_QUBO_instances/scaling_tests/jade_udg/jade_udg_8x8_R12_s50.npz"
 
 
     print(f"\n--- COMPILING BASE CASE: {TARGET_FILE} ---")
@@ -339,7 +339,7 @@ if __name__ == "__main__":
     if Q is not None:
         # Calculate classical phase time for CSV
         start_classic = time.time()
-        coords, fitness, scale = optimize_embedding(Q, num_restarts=10) #base = 5
+        coords, fitness, scale = optimize_embedding(Q, num_restarts=10) #base = 5, boost=10
         t_classic = time.time() - start_classic
         
         # Asynchronous Execution
