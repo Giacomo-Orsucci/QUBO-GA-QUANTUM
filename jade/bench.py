@@ -227,9 +227,9 @@ def optimize_embedding(Q, num_restarts=10):
     for run_idx in range(num_restarts):
         ga = pygad.GA(
             num_generations=1500, #base = 800, boost= 1500
-            num_parents_mating=20,
+            num_parents_mating=20, #30 for 9x9_udg, 20 more basic
             fitness_func=improved_topological_mae_fitness_func, # Switch to mse_fitness_func to test MSE
-            sol_per_pop=200, #base = 100, boost=200
+            sol_per_pop=200, #base = 100, boost=200, 300 for 9x9_udg
             num_genes=N_ATOMS * 2,
             gene_space=gene_space,
             parent_selection_type="tournament",
@@ -237,9 +237,9 @@ def optimize_embedding(Q, num_restarts=10):
             keep_elitism=5,
             crossover_type="uniform",
             mutation_type="adaptive",
-            mutation_probability=[0.4, 0.05],
-            random_mutation_min_val=-3.0, 
-            random_mutation_max_val=3.0,
+            mutation_probability=[0.4, 0.05], #base and boost = [0.4, 0.05]. 9x9_udg: [0.6, 0.15].
+            random_mutation_min_val=-3.0,  #base and boost = -3. 9x9_udg: -4.
+            random_mutation_max_val=3.0,   #base and boost = 3. 9x9_udg: 4.
             allow_duplicate_genes=False,
             suppress_warnings=True
         )
@@ -330,7 +330,7 @@ if __name__ == "__main__":
     #TARGET_FILE ="./my_QUBO_instances/scaling_tests/friendly/global_friendly_5x5_d50_s100.npz"
     #TARGET_FILE ="./my_QUBO_instances/tutorial_5x5.npz"
     #TARGET_FILE ="./my_QUBO_instances/scaling_tests/friendly/global_friendly_6x6_d46.7_s100.npz"
-    TARGET_FILE = "./my_QUBO_instances/scaling_tests/jade_udg/jade_udg_8x8_R12_s50.npz"
+    TARGET_FILE = ".././my_QUBO_instances/scaling_tests/jade_udg/jade_udg_10x10_R12_s52.npz"
 
 
     print(f"\n--- COMPILING BASE CASE: {TARGET_FILE} ---")
@@ -352,7 +352,7 @@ if __name__ == "__main__":
         print("="*50)
         
         # --- CSV APPEND SAVING LOGIC ---
-        OUTPUT_CSV = "./new_csv/experiment_registry.csv"
+        OUTPUT_CSV = ".././new_csv/experiment_registry.csv"
         
         # Build the dictionary with current metadata
         info_run = {
