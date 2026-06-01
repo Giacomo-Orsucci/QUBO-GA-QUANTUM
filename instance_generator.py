@@ -118,7 +118,7 @@ def generate_verisimilar_jade_qubo(n=5, target_degree=2.5, min_dist=4.0, rydberg
 
 # --- TEST DI SCALING ---
 if __name__ == "__main__":
-    for size in range(5, 11):
+    for size in range(30, 31):
         # target_degree=3.0 garantisce che ogni nodo, in media, faccia a cazzotti 
         # (violi il blocco di Rydberg) con altri 3 nodi. 
         # È una difficoltà perfetta per testare il tuo embedding!
