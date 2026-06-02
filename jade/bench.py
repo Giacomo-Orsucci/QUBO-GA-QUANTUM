@@ -27,10 +27,17 @@ device = target_device
 MIN_DIST = device.min_atom_distance
 MAX_RADIUS = device.max_radial_distance if hasattr(device, 'max_radial_distance') else 50
 
+#Insert the QUBO problem you are interested in embed and execute on AnalogQPU.
+
+#TARGET_FILE ="./my_QUBO_instances/scaling_tests/friendly/global_friendly_5x5_d50_s100.npz"
+#TARGET_FILE ="./my_QUBO_instances/tutorial_5x5.npz"
+#TARGET_FILE ="./my_QUBO_instances/scaling_tests/friendly/global_friendly_6x6_d46.7_s100.npz"
+TARGET_FILE = ".././my_QUBO_instances/scaling_tests/jade_udg/jade_udg_15x15_R12_s57.npz"
+
 # ==========================================
-# 2. NATIVE PARSER FOR HAMBURG MATRICES (.npz)
+# QUBO PARSER (.npz)
 # ==========================================
-def load_hamburg_matrix(file_path):
+def load_matrix(file_path):
     try:
         with np.load(file_path, allow_pickle=True) as data:
             i_indices = data['i']
@@ -120,7 +127,6 @@ def optimize_embedding(Q, num_restarts=10):
         return 1.0 / (base_error + penalty + 1e-6)
     
 
-    #TO DO: try also this fitness func
     def improved_topological_mae_fitness_func(ga_instance, solution, solution_idx):
         coords = np.reshape(solution, (N_ATOMS, 2))
         distances = pdist(coords)
@@ -327,15 +333,12 @@ if __name__ == "__main__":
             from pulser_myqlm import IsingAQPU
             qpu_emulator = IsingAQPU()
 
-    #TARGET_FILE ="./my_QUBO_instances/scaling_tests/friendly/global_friendly_5x5_d50_s100.npz"
-    #TARGET_FILE ="./my_QUBO_instances/tutorial_5x5.npz"
-    #TARGET_FILE ="./my_QUBO_instances/scaling_tests/friendly/global_friendly_6x6_d46.7_s100.npz"
-    TARGET_FILE = ".././my_QUBO_instances/scaling_tests/jade_udg/jade_udg_15x15_R12_s57.npz"
+    
 
 
     print(f"\n--- COMPILING BASE CASE: {TARGET_FILE} ---")
     
-    Q = load_hamburg_matrix(TARGET_FILE)
+    Q = load_matrix(TARGET_FILE)
     if Q is not None:
         # Calculate classical phase time for CSV
         start_classic = time.time()
