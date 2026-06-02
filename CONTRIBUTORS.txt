@@ -1,0 +1,4 @@
+# Contributors
+
+Giacomo Orsucci <orsucci.giacomo@gmail.com> - Original Creator & Maintainer
+Claudio Cicconetti - Supervisor
