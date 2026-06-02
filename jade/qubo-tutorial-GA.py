@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: © 2026 Giacomo Orsucci
+# SPDX-License-Identifier: MIT
+
 import numpy as np
 import pygad
 from scipy.spatial.distance import pdist, squareform

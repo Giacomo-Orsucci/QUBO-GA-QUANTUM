@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: © 2026 Giacomo Orsucci
+# SPDX-License-Identifier: MIT
+
 import numpy as np
 from dwave.system import LeapHybridSampler, DWaveSampler, EmbeddingComposite
 

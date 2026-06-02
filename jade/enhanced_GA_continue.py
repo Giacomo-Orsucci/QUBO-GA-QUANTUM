@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: © 2026 Giacomo Orsucci
+# SPDX-License-Identifier: MIT
+
 import os
 import glob
 import time
