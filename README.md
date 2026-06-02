@@ -28,7 +28,7 @@ INSIDE D-Wave:
 work in progress to build an experimental pipeline, but is already possible to send the interested tasks and obtain some logs.
 
 
-Feel free to contact me for any detail, observation, critic or idea.
+Feel free to contact me for any detail, observation, critic or idea. I really appreciate any sort of contribution/constructive exchange of ideas.
 
 
 
