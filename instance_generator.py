@@ -122,7 +122,7 @@ def generate_verisimilar_UDG_qubo(n=5, target_degree=2.5, min_dist=4.0, rydberg_
 
 # --- TEST DI SCALING ---
 if __name__ == "__main__":
-    for size in range(30, 31):
+    for size in range(100, 101):
         # target_degree=3.0 guarantees that each node, on average, clashes 
         # (violates the Rydberg blockade) with 3 other nodes. 
         # It is a perfect difficulty level to test your embedding!
