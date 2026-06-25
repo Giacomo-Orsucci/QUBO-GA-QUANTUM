@@ -24,8 +24,8 @@ FILE_PATH = "../my_QUBO_instances/scaling_tests/jade_udg/jade_udg_100x100_R12_s1
 #FILE_PATH = "../my_QUBO_instances/scaling_tests/jade_udg/jade_udg_50x50_R12_s99.npz" # Esempio per grandi istanze
 OUTPUT_CSV = "./new_csv/dwave_experiment_SA_100x100.csv"
 
-NUM_READS = 1000 
-USE_HYBRID = True # True if Pure Quantum QPU is not able to embed 50+ nodes
+NUM_READS = 2000 
+USE_HYBRID = False # True if Pure Quantum QPU is not able to embed 50+ nodes
 
 # ==========================================
 # 1. PARSERS & CLASSICAL HEURISTIC SOLVER
