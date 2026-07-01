@@ -242,8 +242,8 @@ def optimize_embedding(Q, num_restarts=10):
             num_genes=N_ATOMS * 2,
             gene_space=gene_space,
             parent_selection_type="tournament",
-            K_tournament=4, # 3   o 5
-            keep_elitism=20, # 5  o 20
+            K_tournament=4, # 3   or 5
+            keep_elitism=20, # 5  or 20
             crossover_type="uniform",
             mutation_type="adaptive",
             mutation_probability=[0.10, 0.02], #base and boost = [0.4, 0.05]. 9x9_udg: [0.6, 0.15].

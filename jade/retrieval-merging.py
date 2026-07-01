@@ -15,19 +15,19 @@ import neal #to use SA
 
 # --- 0. INITIAL SETUP ---
 FITNESS_TYPE = "Improved_Topological_MAE" 
-FILE_PATH = ".././my_QUBO_instances/scaling_tests/jade_udg/jade_udg_30x30_R12_s72.npz"
+FILE_PATH = ".././my_QUBO_instances/scaling_tests/jade_udg/jade_udg_20x20_R12_s62.npz"
 
 
 # Extract the clean instance name (e.g., "jade_udg_15x15_R12_s57")
 instance_name = os.path.splitext(os.path.basename(FILE_PATH))[0]
 
-
-
-
 OUTPUT_CSV = f"./retrieval_csv/experiment_registry_distributed_{instance_name}.csv"
 REGISTRY_FILE = f"./distributed_json/cluster_jobs_registry_{instance_name}.json"
 
-# --- 1. HELPER FUNCTIONS ---
+
+#Possible improvement: find the best energy solution among n first solution and stop getting only the
+
+# --- QUBO INSTANCE LOADER ---
 def load_matrix(file_path):
     try:
         with np.load(file_path, allow_pickle=True) as data:
@@ -101,14 +101,13 @@ def run_neal_sa_benchmark(Q):
     
     return best_x, best_energy, execution_time
 
-def run_neal_sa(Q, num_reads=1000, initial_state=None):
+def run_neal_sa_tuning(Q, num_reads=1000, initial_state=None):
     """
-    Esegue il Simulated Annealing. Se viene fornito uno stato iniziale,
-    fa un 'fine-tuning' partendo da quella soluzione invece che da zero.
+    SA fine tuning starting from greedy merged solution.
     """
     start_time = time.time()
     
-    # Conversione matrice Q in dizionario per D-Wave
+    #Q matrix translation in D-Wave SA (for fine tuning)
     qubo_dict = {}
     N = len(Q)
     for i in range(N):
@@ -119,19 +118,15 @@ def run_neal_sa(Q, num_reads=1000, initial_state=None):
     sampler = neal.SimulatedAnnealingSampler()
     
     if initial_state is not None:
-        # Crea il dizionario dello stato iniziale per Neal
         initial_state_dict = {i: int(initial_state[i]) for i in range(N)}
-        # Range di beta (inverso della temperatura). Partiamo da beta=5.0 
-        # (temperatura bassa) per non "fondere" la buona soluzione trovata.
+        # Beta range (inverse of T). We start form 5.0. 
+        # Low temperature to respect our original solution.
         response = sampler.sample_qubo(
             qubo_dict, 
             num_reads=num_reads, 
             initial_states=[initial_state_dict] * num_reads,
             beta_range=[5.0, 100.0] 
         )
-    else:
-        # Esecuzione standard da zero (Benchmark puro)
-        response = sampler.sample_qubo(qubo_dict, num_reads=num_reads)
     
     best_sample = response.first.sample
     best_energy = response.first.energy
@@ -213,25 +208,25 @@ for i in range(N_ATOMS_GLOBAL):
         global_results_map[i] = 0
 
 # ---------------------------------------------------------
-# FASE 3: GREEDY MERGING E POST-PROCESSING
+# FASE 3: GREEDY MERGING and POST-PROCESSING
 # ---------------------------------------------------------
 print("\n  -> [PHASE 3] Starting Greedy Merging of local solutions...")
 final_global_bitstring = greedy_merge(Q_global, global_results_map)
 qpu_energy = final_global_bitstring.T @ Q_global @ final_global_bitstring
 
 print("\n  -> [TUNING] Refining QPU Hybrid Solution with SA...")
-# Diamo la soluzione QPU in pasto al SA per sistemare i bordi
-tuned_bitstring, tuned_energy, tuned_time = run_neal_sa(
+# post processing tuning with SA on greedy merged solution.
+tuned_bitstring, tuned_energy, tuned_time = run_neal_sa_tuning(
     Q_global, 
-    num_reads=500, # Bastano meno letture perché siamo già vicini all'ottimo
+    num_reads=500, # Not so much readings, we are confident the greedy merge found something near the solution
     initial_state=final_global_bitstring
 )
 
-print("\n  -> [BENCHMARK] Running D-Wave Neal Simulated Annealing from scratch...")
-sa_bitstring, sa_energy, sa_time = run_neal_sa(Q_global, num_reads=1000)
+print("\n  -> [BENCHMARK-BASELINE] Running D-Wave Neal Simulated Annealing from scratch...")
+sa_bitstring, sa_energy, sa_time = run_neal_sa_benchmark(Q_global)
 
 # ---------------------------------------------------------
-# RISULTATI FINALI
+# FINAL RESULTS
 # ---------------------------------------------------------
 print("\n" + "="*60)
 print(" EXPERIMENT RESULTS & COMPARISON")
@@ -258,7 +253,9 @@ experiment_data = {
     "Juelich_Master_ID": master_job_signature,
     "Fitness_Metric": FITNESS_TYPE,
     "Energy_Hybrid_QPU": round(qpu_energy, 4),
+    "Energy_Hybrid_Tuned": round(tuned_energy, 4),
     "Energy_Classic_SA": round(sa_energy, 4),
+    "SA_Tuning_Time_s": round(tuned_time, 2),
     "SA_Execution_Time_s": round(sa_time, 2)
 }
 

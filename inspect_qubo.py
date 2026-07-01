@@ -10,7 +10,7 @@ import os
 #file_path = "./qubo-bench/qubo-benchmark-main/instances/compsup/2d/2d_(4, 4)_precision256_seed18.npz"
 #file_path = "./my_QUBO_instances/scaling_tests/friendly-not_so/global_friendly_6x6_d46.7_s100.npz"
 #file_path = "./my_QUBO_instances/tutorial_5x5.npz"
-file_path = "./my_QUBO_instances/scaling_tests/jade_udg/jade_udg_10x10_R12_s52.npz"
+file_path = "./my_QUBO_instances/scaling_tests/jade_udg/jade_udg_100x100_R12_s142.npz"
 
 def inspect_and_print_matrix(path):
     if not os.path.exists(path):

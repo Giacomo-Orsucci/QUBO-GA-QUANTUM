@@ -32,10 +32,18 @@ device = target_device
 MIN_DIST = device.min_atom_distance
 MAX_RADIUS = device.max_radial_distance if hasattr(device, 'max_radial_distance') else 50
 
-TARGET_FILE = ".././my_QUBO_instances/scaling_tests/jade_udg/jade_udg_30x30_R12_s72.npz"
+#instance to test
+TARGET_FILE = ".././my_QUBO_instances/scaling_tests/jade_udg/jade_udg_25x25_R12_s67.npz"
+#number of restarts for our Genetic Algorithm (GA)
 n_restarts = 5
+
+#target size for our cluster decomposition. It has some variance (i.e. I set 5 and I potentially get a cluster of dimensione 9x9, it depends by the decomposition)
+target_cluster_size = 5
+
+#Possible improvements: define different GA parametrization depending on QUBO sizes.
+
 # ==========================================
-# 2. HELPER FUNCTIONS
+# 2. HELPER FUNCTIONS (QUBO loading)
 # ==========================================
 def load_matrix(file_path):
     """Loads the QUBO matrix from an .npz file."""
@@ -54,7 +62,7 @@ def load_matrix(file_path):
         return None
     
 def solve_classically_exact(q_matrix):
-    """Solves small QUBO instances (1 or 2 nodes) using exact brute force."""
+    """Solves small QUBO instances using exact brute force."""
     num_nodes = len(q_matrix)
     best_energy = float('inf')
     best_state = None
@@ -90,6 +98,8 @@ def partition_qubo_topological(q_matrix, target_cluster_size=5):
     print(f"  -> Starting Spectral Clustering to create {num_clusters} clusters...")
     
     # Random state fixed for reproducibility during testing
+    # Using the spectral clustering, the problem is divided where we have small or absent connections
+    # Precomputed param because we are not interested in distance measurement but we use our affinity matrix
     clustering = SpectralClustering(n_clusters=num_clusters, affinity='precomputed', assign_labels='kmeans', random_state=42)
     labels = clustering.fit_predict(affinity_matrix)
     
@@ -194,7 +204,7 @@ def optimize_embedding(q_matrix, num_restarts=10):
 # ==========================================
 # 5. ADIABATIC QUANTUM ENGINE 
 # ==========================================
-def run_quantum_job(q_matrix, coords, scale_factor, qpu_emulator):
+def run_quantum_job(q_matrix, coords, scale_factor):
     """
     Submits a job to the quantum emulator.
     The global laser is now optimized specifically for this sub-graph.
@@ -230,54 +240,56 @@ def run_quantum_job(q_matrix, coords, scale_factor, qpu_emulator):
 
     job = IsingAQPU.convert_sequence_to_job(seq, nbshots=0)
             
-    # --- ASYNCHRONOUS MODIFICATION (NUCLEAR OPTION) ---
-    MAX_RETRIES = 3
-    for attempt in range(MAX_RETRIES):
+    # --- ASYNCHRONOUS MODIFICATION WITH SAFE JIT CONNECTION ---
+    max_retries = 3
+    for attempt in range(max_retries):
         try:
-            async_job = qpu_emulator.submit(job)
+            # 1. Initialize connection INSIDE the try block to catch instantiation timeouts
+            try:
+                from qlmaas.qpus import AnalogQPU
+                fresh_qpu = AnalogQPU()
+            except ImportError:
+                try:
+                    from qat.qlmaas.qpus import QLMaaSQPU
+                    fresh_qpu = QLMaaSQPU("qat.qpus:AnalogQPU")
+                except ImportError:
+                    fresh_qpu = IsingAQPU()
+                    
+            # 2. Submit the job
+            async_job = fresh_qpu.submit(job)
             
-            # Opzione Nucleare: NESSUN controllo su attributi (niente .batch_id).
-            # Convertiamo subito la memoria grezza in stringa.
-            str_rep = repr(async_job)
-            
-            if "SJob" in str_rep:
-                job_id = "SJob" + str_rep.split("SJob")[1].split()[0].strip(">'\")")
-            else:
-                # Fallback di sicurezza assoluta per non bloccare mai il ciclo
-                job_id = str_rep 
+            # 3. Extract the ID safely
+            raw_id = getattr(async_job, "batch_id", None)
+            if not raw_id:
+                raw_id = getattr(async_job, "job_id", None)
                 
-            return job_id
+            if raw_id is not None:
+                id_str = str(raw_id)
+                if id_str.isdigit():
+                    return f"SJob{id_str}"
+                return id_str
             
-        except Exception as e:
-            print(f"     [!] Submission error (Attempt {attempt+1}): {e}")
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(5)
+            return "UNKNOWN_JOB_ID"
+            
+        except Exception as exception_error:
+            # Catches timeouts from BOTH connection initialization AND job submission
+            print(f"     [!] Network timeout/drop detected. Reconnecting... (Attempt {attempt+1}) - Error: {exception_error}")
+            if attempt < max_retries - 1:
+                time.sleep(3) # Wait 3 seconds before trying to establish a new connection
             else:
                 return "SUBMISSION_ERROR"
-
 # ==========================================
 # 6. ORCHESTRATOR RUN
 # ==========================================
-if __name__ == "__main__":
-    print("Initializing virtual QPU...")
-    try:
-        from qlmaas.qpus import AnalogQPU
-        qpu_emulator = AnalogQPU()
-    except ImportError:
-        try:
-            from qat.qlmaas.qpus import QLMaaSQPU
-            qpu_emulator = QLMaaSQPU("qat.qpus:AnalogQPU")
-        except ImportError:
-            print("[WARNING] Remote server not found, using local emulator...")
-            qpu_emulator = IsingAQPU()
 
+if __name__ == "__main__":
     print(f"\n--- COMPILING DISTRIBUTED CASE: {TARGET_FILE} ---")
     
     q_global_matrix = load_matrix(TARGET_FILE)
     if q_global_matrix is None:
         exit()
 
-    # Partitioning: default target size set to 5 for fast 15x15/30x30 tests
+    # Partitioning: default target size set to 5 for Genetic engine
     clusters = partition_qubo_topological(q_global_matrix, target_cluster_size=5)
     
     job_registry = {} 
@@ -289,7 +301,7 @@ if __name__ == "__main__":
         sub_q_matrix = q_global_matrix[np.ix_(global_nodes, global_nodes)]
         
         # Handling very small clusters (trivial classical cases)
-        if len(global_nodes) < 3:
+        if len(global_nodes) < 5:
             print("  -> Cluster too small. Solving exact classically...")
             best_bits = solve_classically_exact(sub_q_matrix)
             bit_string = "".join(map(str, best_bits))
@@ -315,7 +327,7 @@ if __name__ == "__main__":
         coords, fitness, scale_factor = optimize_embedding(sub_q_matrix, num_restarts=n_restarts) 
         ga_execution_time = time.time() - start_time
         
-        job_id = run_quantum_job(sub_q_matrix, coords, scale_factor, qpu_emulator)
+        job_id = run_quantum_job(sub_q_matrix, coords, scale_factor)
         job_registry[job_id] = global_nodes
         
         print(f"  -> Cluster {cluster_id + 1} submitted. Job ID: {job_id}. GA Time: {ga_execution_time:.2f}s | Fitness: {fitness:.4e}")
@@ -338,11 +350,16 @@ if __name__ == "__main__":
     instance_name = os.path.splitext(os.path.basename(TARGET_FILE))[0]
     
     JSON_FILE = f"./distributed_json/cluster_jobs_registry_{instance_name}.json"
+    
     # --- JSON REGISTRY SAVING (Int64 conversion fix) ---
     safe_registry = {j_id: [int(n) for n in nodes] for j_id, nodes in job_registry.items()}
+    
+    # Ensure the directory exists before saving
+    os.makedirs(os.path.dirname(JSON_FILE), exist_ok=True) 
+    
     with open(JSON_FILE, "w") as f:
         json.dump(safe_registry, f)
-    print(" [JSON] Job registry successfully saved.")
+    print(f" [JSON] Job registry successfully saved in {JSON_FILE}.")
 
     # --- GA EXECUTION TIMES CSV SAVING ---
     
