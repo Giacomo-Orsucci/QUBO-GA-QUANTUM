@@ -15,13 +15,13 @@ import neal #to use SA
 
 # --- 0. INITIAL SETUP ---
 FITNESS_TYPE = "Improved_Topological_MAE" 
-FILE_PATH = ".././my_QUBO_instances/scaling_tests/jade_udg/jade_udg_20x20_R12_s62.npz"
+FILE_PATH = ".././my_QUBO_instances/scaling_tests/jade_udg/jade_udg_30x30_R12_s72.npz"
 
 
 # Extract the clean instance name (e.g., "jade_udg_15x15_R12_s57")
 instance_name = os.path.splitext(os.path.basename(FILE_PATH))[0]
 
-OUTPUT_CSV = f"./retrieval_csv/experiment_registry_distributed_{instance_name}.csv"
+OUTPUT_CSV = f"./retrieval_csv-SA-GREEDY-INIT-PARTITIONED/experiment_registry_distributed_{instance_name}.csv"
 REGISTRY_FILE = f"./distributed_json/cluster_jobs_registry_{instance_name}.json"
 
 

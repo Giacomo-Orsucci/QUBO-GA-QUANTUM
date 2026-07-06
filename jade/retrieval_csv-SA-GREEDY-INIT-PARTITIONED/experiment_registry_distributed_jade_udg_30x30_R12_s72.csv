@@ -1,0 +1,2 @@
+Timestamp,Instance,N_Nodes_Global,N_Clusters,Juelich_Master_ID,Fitness_Metric,Energy_Hybrid_QPU,Energy_Hybrid_Tuned,Energy_Classic_SA,SA_Tuning_Time_s,SA_Execution_Time_s
+2026-07-06 20:14:42,jade_udg_30x30_R12_s72.npz,30,4,DISTRIBUTED_4_JOBS,Improved_Topological_MAE,-14.0,-15.0,-15.0,0.23,0.61

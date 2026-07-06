@@ -63,11 +63,11 @@ STEPS_PER_TEMP = 2000  # Use 2000 for 20x20, 1000 for 15x15
 # ==========================================
 # 2. SIMULATED ANNEALING HYPERPARAMETERS (Deep-Focus Tuning)
 # ==========================================
-num_restarts = 5       # SCENDIAMO DA 15 A 5: Risparmiamo un'enormità di tempo globale.
-T_INIT = 80.0          # Partiamo meno caldi per non distruggere le buone posizioni del GRASP.
+num_restarts = 5       # REDUCED FROM 15 TO 5: Saves a huge amount of overall time.
+T_INIT = 80.0          # Starting less hot to avoid destroying the good GRASP positions.
 T_MIN = 0.01           
-COOLING_RATE = 0.995   # CRUCIALE: Raffreddamento lentissimo. Dà agli atomi il tempo di "rilassarsi" dolcemente.
-STEPS_PER_TEMP = 1200  # Bilanciato. Con il cooling a 0.995 faremo molte più "tappe" termiche.
+COOLING_RATE = 0.995   # CRUCIAL: Extremely slow cooling. Gives atoms time to gently "relax".
+STEPS_PER_TEMP = 1200  # Balanced. With cooling at 0.995, we'll have many more thermal "steps".
 
 # ==========================================
 # 3. QUBO PARSER (.npz)
@@ -166,28 +166,29 @@ def optimize_embedding(Q, num_restarts=10):
 
 """
 
-#alternative emerged from experimenting dense graphs:
+# alternative emerged from experimenting dense problems:
+
 # --- PERTURBATION FUNCTION ---
     def perturb_coordinates(coords, temp, max_temp):
         new_coords = coords.copy()
         move_type = random.random()
         
-        # Jitter microscopico: massimo 3 µm per non distruggere i cluster
+        # little Jitter: max 3 µm to not destroy clusters
         jitter_scale = (temp / max_temp) * 3.0 + 0.2 
 
         if move_type < 0.3:
-            # 30% del tempo: micro-aggiustamenti (fine-tuning)
+            # 30% fine-tuning, micro adjustments
             idx = random.randint(0, N_ATOMS - 1)
             new_coords[idx][0] += random.uniform(-jitter_scale, jitter_scale)
             new_coords[idx][1] += random.uniform(-jitter_scale, jitter_scale)
             
         elif move_type < 0.9:
-            # 60% del tempo: SWAP! La mossa più forte per grafi densi
+            # 60% SWAP
             idx1, idx2 = random.sample(range(N_ATOMS), 2)
             new_coords[idx1], new_coords[idx2] = new_coords[idx2].copy(), new_coords[idx1].copy()
             
         else:
-            # 10% del tempo: Riposizionamento cauto
+            # 10% cautious repositioning
             idx = random.randint(0, N_ATOMS - 1)
             r = random.uniform(0, MAX_RADIUS * 0.8) 
             theta = random.uniform(0, 2 * np.pi)

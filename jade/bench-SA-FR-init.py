@@ -19,12 +19,18 @@ from pulser import InterpolatedWaveform, Pulse, Sequence, Register
 from pulser_myqlm import IsingAQPU
 
 
-#CODICE DA TESTARE E VALIDARE!!!! MA FR non mostra risultati soffisfacenti...
 
 # THIS IS THE SCRIPT ABLE TO SCALE UP TO 20X20 AND EMBED OUR INSTANCE WITH SUCCESS.
 # Architecture: Fruchterman-Reingold Initialized Simulated Annealing with Zero-Temperature Quenching.
 
 #IT REALLY DEPENDS ON THE PARAMETRIZATION, BUT IT SLIGHTLY WORSE THAN THE VERSION WITH GREEDY INIT.
+#FOR THIS REASON THE CODE HAS NOT BEEN EXTENDENTLY VALIDATED
+
+
+#POSSIBLE TO DO: 
+
+#1) COMMENTS TRANSLATION AND UNIFORMATION IN ENGLISH
+#2) TOTAL CHECK
 
 # ==========================================
 # 1. HARDWARE SETUP (Fake Jade)
