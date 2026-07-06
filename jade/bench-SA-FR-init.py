@@ -13,16 +13,18 @@ import math
 import io
 import re
 from contextlib import redirect_stdout, redirect_stderr
+import networkx as nx  # <-- ADDED FOR FRUCHTERMAN-REINGOLD
 
 from pulser import InterpolatedWaveform, Pulse, Sequence, Register
 from pulser_myqlm import IsingAQPU
 
 
+#CODICE DA TESTARE E VALIDARE!!!! MA FR non mostra risultati soffisfacenti...
+
 # THIS IS THE SCRIPT ABLE TO SCALE UP TO 20X20 AND EMBED OUR INSTANCE WITH SUCCESS.
+# Architecture: Fruchterman-Reingold Initialized Simulated Annealing with Zero-Temperature Quenching.
 
-# Architecture: GRASP-Initialized Simulated Annealing with Zero-Temperature Quenching.
-
-# IT REALLY DEPENDS ON THE PARAMETRIZATION, BUT FOR THE MOMENT IS THE BEST VERSION.
+#IT REALLY DEPENDS ON THE PARAMETRIZATION, BUT IT SLIGHTLY WORSE THAN THE VERSION WITH GREEDY INIT.
 
 # ==========================================
 # 1. HARDWARE SETUP (Fake Jade)
@@ -47,27 +49,17 @@ TARGET_FILE = ".././my_QUBO_instances/scaling_tests/jade_udg/jade_udg_20x20_R12_
 instance_name = os.path.splitext(os.path.basename(TARGET_FILE))[0]
 
 # --- CSV APPEND SAVING LOGIC ---
-OUTPUT_CSV = f".././new_csv/experiment_registry_SA_{instance_name}.csv"
+OUTPUT_CSV = f".././new_csv/experiment_registry_SA_FR_{instance_name}.csv"
 
-"""
-# ==========================================
-# 2. SIMULATED ANNEALING HYPERPARAMETERS
-# ==========================================
-num_restarts = 15      # Use 15 for 20x20, 10 is enough for 15x15
-T_INIT = 50000.0       # High initial temp to easily overcome 100k penalties
-T_MIN = 0.1            # Deep freeze temperature
-COOLING_RATE = 0.99    # Use 0.99 for 20x20, 0.98 for 15x15
-STEPS_PER_TEMP = 2000  # Use 2000 for 20x20, 1000 for 15x15
-"""
 
 # ==========================================
 # 2. SIMULATED ANNEALING HYPERPARAMETERS (Deep-Focus Tuning)
 # ==========================================
-num_restarts = 5       # SCENDIAMO DA 15 A 5: Risparmiamo un'enormità di tempo globale.
-T_INIT = 80.0          # Partiamo meno caldi per non distruggere le buone posizioni del GRASP.
+num_restarts = 5       
+T_INIT = 80.0          
 T_MIN = 0.01           
-COOLING_RATE = 0.995   # CRUCIALE: Raffreddamento lentissimo. Dà agli atomi il tempo di "rilassarsi" dolcemente.
-STEPS_PER_TEMP = 1200  # Bilanciato. Con il cooling a 0.995 faremo molte più "tappe" termiche.
+COOLING_RATE = 0.995   
+STEPS_PER_TEMP = 1200  
 
 # ==========================================
 # 3. QUBO PARSER (.npz)
@@ -93,7 +85,7 @@ def load_matrix(file_path):
         return None
 
 # ==========================================
-# 4. SA ENGINE (GRASP + Quenching)
+# 4. SA ENGINE (FR Init + Quenching)
 # ==========================================
 def optimize_embedding(Q, num_restarts=10):
     N_ATOMS = len(Q)
@@ -142,56 +134,34 @@ def optimize_embedding(Q, num_restarts=10):
         
         return error_active + error_inactive + penalty
 
-    # --- PERTURBATION FUNCTION ---
-    #def perturb_coordinates(coords, temp, max_temp):
-    #    new_coords = coords.copy()
-     #   move_type = random.random()
-        """
-        jitter_scale = (temp / max_temp) * (MAX_RADIUS / 2) + 0.5 
-
-        if move_type < 0.6:
-            idx = random.randint(0, N_ATOMS - 1)
-            new_coords[idx][0] += random.uniform(-jitter_scale, jitter_scale)
-            new_coords[idx][1] += random.uniform(-jitter_scale, jitter_scale)
-        elif move_type < 0.8:
-            idx1, idx2 = random.sample(range(N_ATOMS), 2)
-            new_coords[idx1], new_coords[idx2] = new_coords[idx2].copy(), new_coords[idx1].copy()
-        else:
-            idx = random.randint(0, N_ATOMS - 1)
-            r = random.uniform(0, MAX_RADIUS)
-            theta = random.uniform(0, 2 * np.pi)
-            new_coords[idx] = [r * np.cos(theta), r * np.sin(theta)]
-            
-        return new_coords
-
-"""
-
-#alternative emerged from experimenting dense graphs:
-# --- PERTURBATION FUNCTION ---
+    # --- PERTURBATION FUNCTION (FR-Preservation Tuning) ---
     def perturb_coordinates(coords, temp, max_temp):
         new_coords = coords.copy()
         move_type = random.random()
         
-        # Jitter microscopico: massimo 3 µm per non distruggere i cluster
-        jitter_scale = (temp / max_temp) * 3.0 + 0.2 
+        jitter_scale = (temp / max_temp) * 2.0 + 0.1 
 
-        if move_type < 0.3:
-            # 30% del tempo: micro-aggiustamenti (fine-tuning)
+        if move_type < 0.85:
+            # 85% DEL TEMPO (MICRO-JITTER): L'FR ha già sbrogliato i nodi. 
+            # Dobbiamo solo farli "vibrare" per superare la distanza minima di 4 µm.
             idx = random.randint(0, N_ATOMS - 1)
             new_coords[idx][0] += random.uniform(-jitter_scale, jitter_scale)
             new_coords[idx][1] += random.uniform(-jitter_scale, jitter_scale)
             
-        elif move_type < 0.9:
-            # 60% del tempo: SWAP! La mossa più forte per grafi densi
-            idx1, idx2 = random.sample(range(N_ATOMS), 2)
-            new_coords[idx1], new_coords[idx2] = new_coords[idx2].copy(), new_coords[idx1].copy()
+        elif move_type < 0.95:
+            # 10% DEL TEMPO (RESPOSIZIONAMENTO RADIALE DOLCE): 
+            # Aiuta i nodi centrali a scappare verso i bordi senza scombinare l'angolo.
+            idx = random.randint(0, N_ATOMS - 1)
+            r = np.linalg.norm(new_coords[idx])
+            angle = np.arctan2(new_coords[idx][1], new_coords[idx][0])
+            new_r = min(MAX_RADIUS * 0.95, r + random.uniform(-2.0, 2.0)) # Espande dolcemente
+            new_coords[idx] = [new_r * np.cos(angle), new_r * np.sin(angle)]
             
         else:
-            # 10% del tempo: Riposizionamento cauto
-            idx = random.randint(0, N_ATOMS - 1)
-            r = random.uniform(0, MAX_RADIUS * 0.8) 
-            theta = random.uniform(0, 2 * np.pi)
-            new_coords[idx] = [r * np.cos(theta), r * np.sin(theta)]
+            # SOLO 5% DEL TEMPO (SWAP): Ridotto al minimo assoluto. 
+            # Usato solo in caso di rarissimi incroci residui.
+            idx1, idx2 = random.sample(range(N_ATOMS), 2)
+            new_coords[idx1], new_coords[idx2] = new_coords[idx2].copy(), new_coords[idx1].copy()
             
         return new_coords
 
@@ -199,45 +169,38 @@ def optimize_embedding(Q, num_restarts=10):
     best_overall_energy = float('inf')
     best_overall_coords = None
 
-    print(f"  -> Starting SA with GRASP Init & Quenching ({num_restarts} runs)...")
+    print(f"  -> Starting SA with FRUCHTERMAN-REINGOLD Init & Quenching ({num_restarts} runs)...")
     
     for run_idx in range(num_restarts):
         
-        # --- SMART INITIALIZATION (GRASP Placer) ---
+        # --- FRUCHTERMAN-REINGOLD INITIALIZATION ---
+        G = nx.Graph()
+        G.add_nodes_from(range(N_ATOMS))
+        
+        # Build the graph based on active bounds in the scaled matrix
+        for i in range(N_ATOMS):
+            for j in range(i + 1, N_ATOMS):
+                if abs(Q_triu_full[i, j]) > 1e-5:
+                    G.add_edge(i, j, weight=abs(Q_triu_full[i, j]))
+                    
+        # Apply the Spring Layout (FR)
+        # Using optimal distance related to MIN_DIST and scaling weights
+        # k=MIN_DIST*2.5 aumenta la repulsione, 300 iterations dà più tempo per stabilizzarsi
+        pos = nx.spring_layout(G, k=MIN_DIST*2.5, iterations=300, weight='weight', seed=random.randint(1, 100000))        
         current_coords = np.zeros((N_ATOMS, 2))
-        node_weights = np.sum(np.abs(Q_triu_full), axis=1) + np.sum(np.abs(Q_triu_full), axis=0)
-        sorted_nodes = np.argsort(node_weights)[::-1].tolist()
-        
-        top_candidates = sorted_nodes[:min(3, len(sorted_nodes))]
-        boss_node = random.choice(top_candidates)
-        sorted_nodes.remove(boss_node)
-        
-        current_coords[boss_node] = [0.0, 0.0]
-        placed_nodes = [boss_node]
-        
-        for node in sorted_nodes:
-            best_target = None
-            max_bond = 0
-            for p in placed_nodes:
-                bond = abs(Q_target[min(node, p), max(node, p)])
-                if bond > max_bond:
-                    max_bond = bond
-                    best_target = p
+        for i in range(N_ATOMS):
+            current_coords[i] = pos[i]
             
-            if best_target is not None and max_bond > 1e-5:
-                angle = random.uniform(0, 2 * np.pi)
-                r_orbit = MIN_DIST * random.uniform(1.2, 1.8) 
-                current_coords[node] = [
-                    current_coords[best_target][0] + r_orbit * np.cos(angle),
-                    current_coords[best_target][1] + r_orbit * np.sin(angle)
-                ]
-            else:
-                angle = random.uniform(0, 2 * np.pi)
-                current_coords[node] = [
-                    (MAX_RADIUS - MIN_DIST) * np.cos(angle),
-                    (MAX_RADIUS - MIN_DIST) * np.sin(angle)
-                ]
-            placed_nodes.append(node)
+        # Normalize and map directly into the device bounds (using 85% of MAX_RADIUS to stay safe)
+        norms = np.linalg.norm(current_coords, axis=1)
+        max_norm = np.max(norms)
+        if max_norm > 0:
+            current_coords = current_coords * ((MAX_RADIUS * 0.85) / max_norm)
+            
+        # Add microscopic jitter to break perfect symmetries that might trap the SA
+        for i in range(N_ATOMS):
+            current_coords[i][0] += random.uniform(-1.0, 1.0)
+            current_coords[i][1] += random.uniform(-1.0, 1.0)
 
         current_energy = calculate_energy(current_coords)
         best_run_coords = current_coords.copy()
@@ -422,7 +385,7 @@ if __name__ == "__main__":
             "Scale_Factor": round(scale, 4),
             "Classical_Time_s": round(classic_time, 2),
             "Juelich_Job_ID": "PENDING",  
-            "Fitness_Metric": "Improved_Topological_MAE_SA_GRASP"
+            "Fitness_Metric": "Improved_Topological_MAE_SA_FR" # Updated metric name
         }
         
         if os.path.exists(OUTPUT_CSV):

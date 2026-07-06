@@ -15,6 +15,10 @@ import math
 from pulser import InterpolatedWaveform, Pulse, Sequence, Register
 from pulser_myqlm import IsingAQPU
 
+
+
+#THIS IS THE BASELINE FOR SA BUT NOT THE BEST VERSION (but it also depends by the parametrization).
+
 # ==========================================
 # 1. HARDWARE SETUP (Fake Jade)
 # ==========================================
@@ -29,18 +33,26 @@ except ImportError:
     print("[WARNING] Jade profile injected artificially (Radius extended to 50 µm).")
 
 device = target_device
-MIN_DIST = device.min_atom_distance
+MIN_DIST = device.min_atom_distance 
 MAX_RADIUS = device.max_radial_distance if hasattr(device, 'max_radial_distance') else 50
 
-# Insert the QUBO problem you are interested in embedding and executing on AnalogQPU.
+# Target file for the 20x20 scaling test instance
+TARGET_FILE = ".././my_QUBO_instances/scaling_tests/jade_udg/jade_udg_20x20_R12_s62_d5.0.npz"
 
-# TARGET_FILE ="./my_QUBO_instances/scaling_tests/friendly/global_friendly_5x5_d50_s100.npz"
-# TARGET_FILE ="./my_QUBO_instances/tutorial_5x5.npz"
-# TARGET_FILE ="./my_QUBO_instances/scaling_tests/friendly/global_friendly_6x6_d46.7_s100.npz"
-TARGET_FILE = ".././my_QUBO_instances/scaling_tests/jade_udg/jade_udg_20x20_R12_s62.npz"
+instance_name = os.path.splitext(os.path.basename(TARGET_FILE))[0]
 
 # --- CSV APPEND SAVING LOGIC ---
-OUTPUT_CSV = f".././new_csv/experiment_registry_20x20_SA.csv"
+OUTPUT_CSV = f".././new_csv/experiment_registry_SA_FR_{instance_name}.csv"
+
+
+# --- SIMULATED ANNEALING PARAMETERS ---
+# These are the equivalents of (population, generations, mutation)
+T_INIT = 50000.0       # Initial temperature (high to overcome strong local penalties)
+T_MIN = 0.1            # Final temperature
+COOLING_RATE = 0.98    # Cooling factor (e.g., 0.99 = slow, 0.90 = fast)
+STEPS_PER_TEMP = 800   # How many configurations to explore per temperature level
+
+num_restarts = 10
 
 # ==========================================
 # 2. QUBO PARSER (.npz)
@@ -145,12 +157,7 @@ def optimize_embedding(Q, num_restarts=10):
 
         return new_coords
 
-    # --- SIMULATED ANNEALING PARAMETERS ---
-    # These are the equivalents of (population, generations, mutation)
-    T_INIT = 50000.0       # Initial temperature (high to overcome strong local penalties)
-    T_MIN = 0.1            # Final temperature
-    COOLING_RATE = 0.98    # Cooling factor (e.g., 0.99 = slow, 0.90 = fast)
-    STEPS_PER_TEMP = 800   # How many configurations to explore per temperature level
+    
 
     best_overall_energy = float('inf')
     best_overall_coords = None
@@ -208,12 +215,12 @@ def optimize_embedding(Q, num_restarts=10):
     # so as not to break your CSV logging which expects fitness
     final_fitness = 1.0 / (best_overall_energy + 1e-6)
 
-    return best_overall_coords, final_fitness, scale_factor
+    return best_overall_coords, best_overall_energy, final_fitness, scale_factor
 
 # ==========================================
 # 4. ADIABATIC QUANTUM ENGINE
 # ==========================================
-def run_quantum_job(Q, coords, scale_factor, qpu_emulator):
+def run_quantum_job(Q, coords, scale_factor):
     N_ATOMS = len(Q)
     Q_off_diag = Q.copy()
     np.fill_diagonal(Q_off_diag, 0)
@@ -249,76 +256,87 @@ def run_quantum_job(Q, coords, scale_factor, qpu_emulator):
     job = IsingAQPU.convert_sequence_to_job(seq, nbshots=0)
     print("  -> Submitting job to quantum emulator...")
     
-    # --- ASYNCHRONOUS MODIFICATION ---
-    MAX_RETRIES = 3
-    for attempt in range(MAX_RETRIES):
+    # --- ASYNCHRONOUS MODIFICATION WITH SAFE JIT CONNECTION & STDOUT INTERCEPTOR ---
+    max_retries = 3
+    for attempt in range(max_retries):
+        captured_output = io.StringIO()
+        
         try:
-            async_job = qpu_emulator.submit(job)
-            try:
-                job_id = async_job.batch_id
-            except AttributeError:
-                job_id = str(async_job) 
+            with redirect_stdout(captured_output), redirect_stderr(captured_output):
                 
-            print(f"  -> [SUCCESS] Job accepted! Assigned ID: {job_id}")
-            return job_id
-        except Exception as e:
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(5)
+                async_job = qpu_emulator.submit(job)
+            
+            output_str = captured_output.getvalue()
+            
+            if output_str and "Submitted a new batch" not in output_str:
+                print(output_str, end="")
+                
+            raw_id = getattr(async_job, "batch_id", None)
+            if not raw_id:
+                raw_id = getattr(async_job, "job_id", None)
+                
+            if raw_id is not None:
+                id_str = str(raw_id)
+                if id_str.isdigit():
+                    return f"SJob{id_str}"
+                return id_str
+            
+            return "UNKNOWN_JOB_ID"
+            
+        except Exception as exception_error:
+            output_str = captured_output.getvalue()
+            
+            
+            match = re.search(r'(SJob\d+)', output_str)
+            if match:
+                recovered_job_id = match.group(1)
+                print(f"     -> [RECOVERED] Server timeout avoided! Intercepted assigned ID: {recovered_job_id}")
+                return recovered_job_id
+                
+            
+            if output_str:
+                print(output_str, end="")
+                
+            print(f"     [!] Network timeout/drop detected. Reconnecting... (Attempt {attempt+1}) - Error: {exception_error}")
+            
+            if attempt < max_retries - 1:
+                time.sleep(3) 
             else:
                 return "SUBMISSION_ERROR"
 
 # ==========================================
-# 5. ORCHESTRATOR RUN (Async with CSV logging)
+# 6. ORCHESTRATOR RUN (FAIL-SAFE CHECKPOINTING)
 # ==========================================
 if __name__ == "__main__":
-    print("Initializing virtual QPU...")
-    try:
-        from qlmaas.qpus import AnalogQPU
-        qpu_emulator = AnalogQPU()
-        print("  -> Successfully connected to QLMaaS server (AnalogQPU).")
-    except ImportError:
-        try:
-            from qat.qlmaas.qpus import QLMaaSQPU
-            qpu_emulator = QLMaaSQPU("qat.qpus:AnalogQPU")
-            print("  -> Successfully connected to QLMaaS server (QLMaaSQPU).")
-        except ImportError:
-            print("[WARNING] Remote server not found, falling back to local emulator (IsingAQPU)...")
-            from pulser_myqlm import IsingAQPU
-            qpu_emulator = IsingAQPU()
-
-
+    
     print(f"\n--- COMPILING BASE CASE: {TARGET_FILE} ---")
     
     Q = load_matrix(TARGET_FILE)
     if Q is not None:
-        # Calculate classical phase time for CSV
+        
+        # --- PHASE 1: CLASSICAL COMPUTATION ---
         start_classic_time = time.time()
-        coords, fitness, scale = optimize_embedding(Q, num_restarts=10) # base = 5, boost=10-15
+        coords, best_energy, fitness, scale = optimize_embedding(Q, num_restarts=num_restarts)
         classic_time = time.time() - start_classic_time
         
-        # Asynchronous Execution
-        job_id = run_quantum_job(Q, coords, scale, qpu_emulator)
-        
-        print("\n" + "="*50)
-        print(f" OPERATION COMPLETED")
-        print(f" Your Job ID is: {job_id}")
-        print(f" Use the 'retrieve.py' script to extract the data.")
-        print("="*50)
-        
-        # Build the dictionary with current metadata
+        # --- PHASE 2: FAIL-SAFE PRE-SAVE ---
         run_info = {
             "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
             "Instance": os.path.basename(TARGET_FILE),
             "N_Nodes": len(Q),
+            "SA_Restarts": num_restarts,           # NEW LOGGED FIELD
+            "SA_T_Init": T_INIT,                   # NEW LOGGED FIELD
+            "SA_T_Min": T_MIN,                     # NEW LOGGED FIELD
+            "SA_Cooling": COOLING_RATE,            # NEW LOGGED FIELD
+            "SA_Steps": STEPS_PER_TEMP,            # NEW LOGGED FIELD
+            "Best_Energy_Cost": round(best_energy, 4), 
             "Spatial_Fitness": round(fitness, 6),
             "Scale_Factor": round(scale, 4),
             "Classical_Time_s": round(classic_time, 2),
-            "Juelich_Job_ID": job_id,
-            "Fitness_Metric": "Improved_Topological_MAE"  # Change to "MSE" when testing the other metric
+            "Juelich_Job_ID": "PENDING",  
+            "Fitness_Metric": "Improved_Topological_MAE_SA_FR" # Updated metric name
         }
         
-        # If the file already exists, load the history and append the new row.
-        # If it doesn't exist, Pandas will create it from scratch with headers.
         if os.path.exists(OUTPUT_CSV):
             df_history = pd.read_csv(OUTPUT_CSV)
             df_new = pd.DataFrame([run_info])
@@ -327,4 +345,22 @@ if __name__ == "__main__":
             df_updated = pd.DataFrame([run_info])
             
         df_updated.to_csv(OUTPUT_CSV, index=False)
-        print(f"\n[INFO] Run data successfully saved in '{OUTPUT_CSV}'")
+        print(f"\n[FAIL-SAFE] Classical optimization data (Cost: {best_energy:.4f}) safely stored in '{OUTPUT_CSV}'.")
+        
+        # --- PHASE 3: REMOTE QUANTUM SUBMISSION ---
+        job_id = run_quantum_job(Q, coords, scale)
+        
+        print("\n" + "="*50)
+        print(f" OPERATION COMPLETED")
+        print(f" Your Job ID is: {job_id}")
+        print(f" Use the 'retrieve.py' script to extract the data.")
+        print("="*50)
+        
+        # --- PHASE 4: POST-SAVE UPDATE ---
+        if job_id != "SUBMISSION_ERROR":
+            df_history = pd.read_csv(OUTPUT_CSV)
+            df_history.at[df_history.index[-1], 'Juelich_Job_ID'] = job_id
+            df_history.to_csv(OUTPUT_CSV, index=False)
+            print(f"[INFO] Registry seamlessly updated. Job ID '{job_id}' linked to the run.")
+        else:
+            print(f"[WARNING] Submission failed. Data is preserved but Job ID remains 'PENDING'.")

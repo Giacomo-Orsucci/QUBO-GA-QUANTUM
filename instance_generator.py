@@ -6,7 +6,7 @@ import os
 from scipy.spatial.distance import pdist, squareform
 
 
-
+target_degree = 8.0
 
 #The final density has some variance in it, but is due to random generation.
 def generate_qubo(n=5, density=0.25, seed=42):
@@ -106,7 +106,7 @@ def generate_verisimilar_UDG_qubo(n=5, target_degree=2.5, min_dist=4.0, rydberg_
     # Saving Compatible with your 'load_hamburg_matrix'
     output_dir = "./my_QUBO_instances/scaling_tests/jade_udg"
     os.makedirs(output_dir, exist_ok=True)
-    file_name = f"{output_dir}/jade_udg_{n}x{n}_R{int(rydberg_radius)}_s{seed}.npz"
+    file_name = f"{output_dir}/jade_udg_{n}x{n}_R{int(rydberg_radius)}_s{seed}_d{target_degree}.npz"
     
     # Upper Triangle Extraction
     i_idx, j_idx = np.where(np.triu(Q) != 0)
@@ -122,13 +122,13 @@ def generate_verisimilar_UDG_qubo(n=5, target_degree=2.5, min_dist=4.0, rydberg_
 
 # --- TEST DI SCALING ---
 if __name__ == "__main__":
-    for size in range(100, 101):
+    for size in range(20, 21):
         # target_degree=3.0 guarantees that each node, on average, clashes 
         # (violates the Rydberg blockade) with 3 other nodes. 
-        # It is a perfect difficulty level to test your embedding!
+        # It is a perfect difficulty level to test the embedding methods.
         generate_verisimilar_UDG_qubo(
             n=size, 
-            target_degree=3.0, 
+            target_degree=target_degree, 
             min_dist=4.0, 
             rydberg_radius=12.0, 
             seed=42 + size

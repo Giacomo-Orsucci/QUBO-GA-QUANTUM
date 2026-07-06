@@ -173,5 +173,6 @@ qubo-bench/qubo-benchmark-main/
 jade/distributed_json/
 jade/distributed_time_csv/
 new_csv/
+old_csv/
 retrieval_csv/
 Idee/
