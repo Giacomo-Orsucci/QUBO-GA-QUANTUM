@@ -7,6 +7,8 @@ from scipy.spatial.distance import pdist, squareform
 
 
 target_degree = 8.0
+min_range = 50
+max_range = 51
 
 #The final density has some variance in it, but is due to random generation.
 def generate_qubo(n=5, density=0.25, seed=42):
@@ -122,7 +124,7 @@ def generate_verisimilar_UDG_qubo(n=5, target_degree=2.5, min_dist=4.0, rydberg_
 
 # --- TEST DI SCALING ---
 if __name__ == "__main__":
-    for size in range(20, 21):
+    for size in range(min_range, max_range):
         # target_degree=3.0 guarantees that each node, on average, clashes 
         # (violates the Rydberg blockade) with 3 other nodes. 
         # It is a perfect difficulty level to test the embedding methods.

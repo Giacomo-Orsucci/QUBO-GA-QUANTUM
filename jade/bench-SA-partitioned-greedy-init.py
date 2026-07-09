@@ -38,10 +38,10 @@ MIN_DIST = device.min_atom_distance
 MAX_RADIUS = device.max_radial_distance if hasattr(device, 'max_radial_distance') else 50
 
 # Target file for the scaling test instance
-TARGET_FILE = ".././my_QUBO_instances/scaling_tests/jade_udg/jade_udg_30x30_R12_s72.npz"
+TARGET_FILE = ".././my_QUBO_instances/scaling_tests/jade_udg/jade_udg_50x50_R12_s92_d8.0.npz"
 instance_name = os.path.splitext(os.path.basename(TARGET_FILE))[0]
 
-OUTPUT_CSV = f".././new_csv/experiment_registry_SA_partitioned_{instance_name}.csv"
+SA_CSV_FILE = f"./distributed_time_csv/sa_times_{instance_name}.csv"
 TARGET_CLUSTER_SIZE = 15
 
 # ==========================================
@@ -500,7 +500,7 @@ if __name__ == "__main__":
 
     instance_name = os.path.splitext(os.path.basename(TARGET_FILE))[0]
     
-    JSON_FILE = f"./distributed_json/cluster_jobs_registry_{instance_name}.json"
+    JSON_FILE = f"./distributed_json/cluster_jobs_registry_SA_partitioned_{instance_name}.json"
     safe_registry = {j_id: [int(n) for n in nodes] for j_id, nodes in job_registry.items()}
     os.makedirs(os.path.dirname(JSON_FILE), exist_ok=True) 
     
@@ -509,7 +509,7 @@ if __name__ == "__main__":
     print(f" [JSON] Job registry successfully saved in {JSON_FILE}.")
 
     # --- EXECUTION TIMES CSV SAVING ---
-    SA_CSV_FILE = f"./distributed_time_csv/sa_times_{instance_name}.csv"
+    
     os.makedirs(os.path.dirname(SA_CSV_FILE), exist_ok=True) 
     
     if os.path.exists(SA_CSV_FILE):

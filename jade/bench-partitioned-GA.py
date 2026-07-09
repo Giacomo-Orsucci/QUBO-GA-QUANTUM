@@ -40,7 +40,9 @@ n_restarts = 5
 #target size for our cluster decomposition. It has some variance (i.e. I set 5 and I potentially get a cluster of dimensione 9x9, it depends by the decomposition)
 target_cluster_size = 5
 
-#Possible improvements: define different GA parametrization depending on QUBO sizes.
+#Possible improvements: 
+# 1) define different GA parametrization depending on QUBO sizes.
+# 2) implement an iterative spectral clustering like in SA version.
 
 # ==========================================
 # 2. HELPER FUNCTIONS (QUBO loading)

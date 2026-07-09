@@ -10,24 +10,24 @@ from os import getenv
 from qat.qlmaas.connection import QLMaaSConnection
 import re
 
-
 import neal #to use SA
 
 # --- 0. INITIAL SETUP ---
 FITNESS_TYPE = "Improved_Topological_MAE" 
-FILE_PATH = ".././my_QUBO_instances/scaling_tests/jade_udg/jade_udg_30x30_R12_s72.npz"
-
+FILE_PATH = ".././my_QUBO_instances/scaling_tests/jade_udg/jade_udg_50x50_R12_s92_d8.0.npz"
 
 # Extract the clean instance name (e.g., "jade_udg_15x15_R12_s57")
 instance_name = os.path.splitext(os.path.basename(FILE_PATH))[0]
 
 OUTPUT_CSV = f"./retrieval_csv-SA-GREEDY-INIT-PARTITIONED/experiment_registry_distributed_{instance_name}.csv"
-REGISTRY_FILE = f"./distributed_json/cluster_jobs_registry_{instance_name}.json"
+REGISTRY_FILE = f"./distributed_json/cluster_jobs_registry_SA_partitioned_{instance_name}.json"
+
+#ADDED IMPROVEMENT: are evaluated all the solutions found by the quantum execution and not only the most probable. In this way
+#the minimum energy solution is chosen.
 
 
-#Possible improvement: find the best energy solution among n first solution and stop getting only the
 
-# --- QUBO INSTANCE LOADER ---
+# --- 1. QUBO INSTANCE LOADER ---
 def load_matrix(file_path):
     try:
         with np.load(file_path, allow_pickle=True) as data:
@@ -84,7 +84,6 @@ def run_neal_sa_benchmark(Q):
     sampler = neal.SimulatedAnnealingSampler()
     
     # Run the sampling
-    # num_reads = number of independent SA runs. 1000 is a solid number for finding good minimums.
     response = sampler.sample_qubo(qubo_dict, num_reads=1000)
     
     # Get the best sample (the one with the lowest energy)
@@ -103,11 +102,11 @@ def run_neal_sa_benchmark(Q):
 
 def run_neal_sa_tuning(Q, num_reads=1000, initial_state=None):
     """
-    SA fine tuning starting from greedy merged solution.
+    SA fine tuning starting from the greedy merged solution.
     """
     start_time = time.time()
     
-    #Q matrix translation in D-Wave SA (for fine tuning)
+    # Q matrix translation for D-Wave SA
     qubo_dict = {}
     N = len(Q)
     for i in range(N):
@@ -119,14 +118,16 @@ def run_neal_sa_tuning(Q, num_reads=1000, initial_state=None):
     
     if initial_state is not None:
         initial_state_dict = {i: int(initial_state[i]) for i in range(N)}
-        # Beta range (inverse of T). We start form 5.0. 
-        # Low temperature to respect our original solution.
+        # Beta range (inverse of T). Start from 5.0 (low temp) 
+        # to respect our originally merged topological solution.
         response = sampler.sample_qubo(
             qubo_dict, 
             num_reads=num_reads, 
             initial_states=[initial_state_dict] * num_reads,
             beta_range=[5.0, 100.0] 
         )
+    else:
+        response = sampler.sample_qubo(qubo_dict, num_reads=num_reads)
     
     best_sample = response.first.sample
     best_energy = response.first.energy
@@ -152,7 +153,7 @@ except FileNotFoundError:
     print(f"ERROR: File '{REGISTRY_FILE}' not found. Please run the submission script first.")
     exit()
 
-# --- 4. MULTI-JOB RETRIEVAL ---
+# --- 4. MULTI-JOB RETRIEVAL (WITH ENERGY-BASED FILTERING) ---
 print("\n  -> [PHASE 2] Connecting to Jülich to retrieve cluster data...")
 try:
     connection = QLMaaSConnection()
@@ -164,7 +165,7 @@ global_results_map = {}
 all_jobs_completed = True
 
 for job_id, global_nodes in job_registry.items():
-    # 1. Intercepets locally solved tasks
+    # 1. Intercept locally solved exact tasks
     if job_id.startswith("LOCAL_EXACT_"):
         best_bitstring = job_id.split("_")[-1]
         print(f"     [OK] Loaded exact local solution for {len(global_nodes)} nodes (Bits: {best_bitstring})")
@@ -183,42 +184,59 @@ for job_id, global_nodes in job_registry.items():
         
     results = connection.get_result(job_id)
     
-    best_prob = -1
-    best_bitstring = None
+    # Slice the local QUBO sub-matrix for energy evaluation
+    sub_Q = Q_global[np.ix_(global_nodes, global_nodes)]
     
+    best_local_energy = float('inf')
+    best_bitstring = None
+    best_associated_prob = 0.0
+    
+    # 2. Evaluate all unique sampled states to find the true local minimum
     for sample in results.raw_data:
-        if sample.probability > best_prob:
-            best_prob = sample.probability
-            bits_only = re.sub(r'[^01]', '', str(sample.state))
-            best_bitstring = bits_only.zfill(len(global_nodes))
+        # Clean the bitstring representation
+        bits_only = re.sub(r'[^01]', '', str(sample.state))
+        bitstring = bits_only.zfill(len(global_nodes))
+        
+        # Convert to numpy array for fast matrix multiplication
+        state_array = np.array([int(b) for b in bitstring])
+        
+        # Calculate exact classical energy for this quantum state
+        current_energy = state_array.T @ sub_Q @ state_array
+        
+        # Keep the sample that provides the absolute minimum QUBO energy
+        if current_energy < best_local_energy:
+            best_local_energy = current_energy
+            best_bitstring = bitstring
+            best_associated_prob = sample.probability
             
     if best_bitstring:
         for local_idx, bit_str in enumerate(best_bitstring):
             global_idx = global_nodes[local_idx]
             global_results_map[global_idx] = int(bit_str)
             
-    print(f"     [OK] Job {job_id} downloaded. (Highest Probability: {best_prob:.3f})")
+    print(f"     [OK] Job {job_id} downloaded & filtered. Lowest Energy: {best_local_energy:.4f} (Prob: {best_associated_prob:.3f})")
 
 if not all_jobs_completed:
     print("\n[WARNING] Not all jobs are completed. Execution halted to wait for pending results.")
     exit()
 
+# Ensure all nodes have at least a default state (0)
 for i in range(N_ATOMS_GLOBAL):
     if i not in global_results_map:
         global_results_map[i] = 0
 
 # ---------------------------------------------------------
-# FASE 3: GREEDY MERGING and POST-PROCESSING
+# PHASE 3: GREEDY MERGING and POST-PROCESSING
 # ---------------------------------------------------------
 print("\n  -> [PHASE 3] Starting Greedy Merging of local solutions...")
 final_global_bitstring = greedy_merge(Q_global, global_results_map)
 qpu_energy = final_global_bitstring.T @ Q_global @ final_global_bitstring
 
 print("\n  -> [TUNING] Refining QPU Hybrid Solution with SA...")
-# post processing tuning with SA on greedy merged solution.
+# Post-processing tuning with SA on the greedy merged solution.
 tuned_bitstring, tuned_energy, tuned_time = run_neal_sa_tuning(
     Q_global, 
-    num_reads=500, # Not so much readings, we are confident the greedy merge found something near the solution
+    num_reads=500, 
     initial_state=final_global_bitstring
 )
 
