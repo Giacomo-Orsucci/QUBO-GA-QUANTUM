@@ -7,7 +7,7 @@ This is a first experimental repository, built to be a testing ground for initia
 
 INSIDE JADE (folder containing atom neutral quantum architecture related scripts):
 
--bench-GA/SA.py: is the "core", load the instance we want to embed and send to resolve it to AnalogQPU. In detail{
+-bench-GA/SA.py: is the "core", load the instance we want to embed and send it to be resolved with AnalogQPU. In detail{
 
     1. instance loading
     2. parametrize the GA/SA as you like with the proposed fitness function and hyperparameter of your choice (I recommend improved_topological_mae_fitness_func as I obtained good results on 10x10 UDG instances).
