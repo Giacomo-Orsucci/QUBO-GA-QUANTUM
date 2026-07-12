@@ -5,18 +5,26 @@ This is a first experimental repository, built to be a testing ground for initia
 
 -inspect_qubo.py: to inspect visually (in console) and mathematically the QUBO matrix we are interested in.
 
-INSIDE JADE:
+INSIDE JADE (folder containing atom neutral quantum architecture related scripts):
 
--bench.py: is the "core", load the instance we want to embed and send to resolve it to AnalogQPU. In detail{
+-bench-GA/SA.py: is the "core", load the instance we want to embed and send to resolve it to AnalogQPU. In detail{
 
     1. instance loading
-    2. parametrize the GA as you like with the proposed fitness function and hyperparameter of your choice (I recommend improved_topological_mae_fitness_func as I obtained good results on 10x10 UDG instances).
+    2. parametrize the GA/SA as you like with the proposed fitness function and hyperparameter of your choice (I recommend improved_topological_mae_fitness_func as I obtained good results on 10x10 UDG instances).
     3. send the job on the remote Julich HPC (Jade is not ready, so I simulate with AnalogQPU but with Jade's constraints).
     4. log everything on .csv.
 
 }
 
 -retrieve.py: final step of the experimental pipeline for Jade. Insert the Job_id, the instance file path, execute and an image with probabilities will be shown. If optimal solutions have been found, the bar charts are green. It logs in the same .csv inserted in bench.py and copied in this script.
+
+If you want to try the divide et impera approach (name "partitioned"), you can find various versions. In my opinion, bench-SA-greedy-init is the most maure, promising and effective. The conceptual scheme is the following:
+
+![Divide et impera approach conceptual scheme](./readme_img/Divide-et-impera.png)
+
+once executed, to retrieve and merge the solutions, use the retrieval-merging.py script:
+
+![Divide et impera approach retrieval and merging conceptual scheme](./readme_img/Retrieval-merging.png)
 
 The other scripts in jade are very experimental and not so mature. Their aim was to tests some possible variants, feel free to explore.
 
@@ -25,8 +33,7 @@ I uploaded my_QUBO_instances to show what instances I worked with (in this momen
 
 INSIDE D-Wave:
 
-work in progress to build an experimental pipeline, but is already possible to send the interested tasks and obtain some logs.
-
+little scripts to test PURE_QUANTUM and HYBRID approaches with D-WAVE platform.
 
 Feel free to contact me for any detail, observation, critic or idea. I really appreciate any sort of contribution/constructive exchange of ideas.
 
