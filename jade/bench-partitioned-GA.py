@@ -37,12 +37,12 @@ TARGET_FILE = ".././my_QUBO_instances/scaling_tests/jade_udg/jade_udg_25x25_R12_
 #number of restarts for our Genetic Algorithm (GA)
 n_restarts = 5
 
-#target size for our cluster decomposition. It has some variance (i.e. I set 5 and I potentially get a cluster of dimensione 9x9, it depends by the decomposition)
+#target size for our cluster decomposition. It has some variance (i.e. I set 5 and I potentially get a cluster of dimension 9x9, it depends by the decomposition)
 target_cluster_size = 5
 
 #Possible improvements if we want to experiment more with GA: 
 # 1) define different GA parametrization depending on QUBO sizes.
-# 2) implement an iterative spectral clustering like in SA version.
+# 2) implement an iterative spectral clustering like in SA version. See bench-SA-partitioned-greedy-init.py to see how can be implemented a recursive decomposition with a controlled cluster size variance.
 
 # ==========================================
 # 2. HELPER FUNCTIONS (QUBO loading)

@@ -32,10 +32,9 @@ MAX_RADIUS = device.max_radial_distance if hasattr(device, 'max_radial_distance'
 
 #Insert the QUBO problem you are interested in embed and execute on AnalogQPU.
 
-#TARGET_FILE ="./my_QUBO_instances/scaling_tests/friendly/global_friendly_5x5_d50_s100.npz"
-#TARGET_FILE ="./my_QUBO_instances/tutorial_5x5.npz"
-#TARGET_FILE ="./my_QUBO_instances/scaling_tests/friendly/global_friendly_6x6_d46.7_s100.npz"
-TARGET_FILE = ".././my_QUBO_instances/scaling_tests/jade_udg/jade_udg_15x15_R12_s57.npz"
+TARGET_FILE = ".././my_QUBO_instances/scaling_tests/jade_udg/jade_udg_5x5_R12_s47.npz"
+
+n_restarts = 1 #suggested = 10
 
 # ==========================================
 # QUBO PARSER (.npz)
@@ -63,7 +62,7 @@ def load_matrix(file_path):
 # ==========================================
 # 3. GENETIC ENGINE (Embedding Optimization)
 # ==========================================
-def optimize_embedding(Q, num_restarts=10):
+def optimize_embedding(Q, num_restarts=n_restarts):
     N_ATOMS = len(Q)
     Q_off_diag = Q.copy()
     np.fill_diagonal(Q_off_diag, 0)
@@ -298,6 +297,8 @@ def run_quantum_job(Q, coords, scale_factor, qpu_emulator):
     seq.declare_channel("ising", "rydberg_global")
     seq.add(adiabatic_pulse, "ising")
 
+    seq.draw()
+
     job = IsingAQPU.convert_sequence_to_job(seq, nbshots=0)
     print("  -> Submitting job to quantum emulator...")
     
@@ -345,7 +346,7 @@ if __name__ == "__main__":
     if Q is not None:
         # Calculate classical phase time for CSV
         start_classic = time.time()
-        coords, fitness, scale = optimize_embedding(Q, num_restarts=10) #base = 5, boost=10-15
+        coords, fitness, scale = optimize_embedding(Q, num_restarts=n_restarts) #base = 5, boost=10-15
         t_classic = time.time() - start_classic
         
         # Asynchronous Execution

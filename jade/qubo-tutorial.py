@@ -12,6 +12,12 @@ from qat.core import Result
 
 from pulser_myqlm import FresnelQPU, IsingAQPU
 
+
+
+#One of the very first script with early experiments and considerations
+
+
+
 #(Tutorial: https://github.com/pasqal-io/Pulser-myQLM/blob/main/tutorials/QAOA%20and%20QAA%20to%20solve%20a%20QUBO%20problem.ipynb)
 # MODIFICATIONS/ADDITIONS: optimization executed 10 times to slightly mitigate Nelder-Mead's sensitivity to local minima
 # and compare the error (and thus the best solution) with the one obtained using GA.

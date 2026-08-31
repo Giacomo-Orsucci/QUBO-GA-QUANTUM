@@ -3,52 +3,43 @@
 
 import numpy as np
 import os
+import sys
 from scipy.spatial.distance import pdist, squareform
 
-
-target_degree = 8.0
-min_range = 50
-max_range = 51
-
-#The final density has some variance in it, but is due to random generation.
 def generate_qubo(n=5, density=0.25, seed=42):
-    # Fixed seed
+    """
+    Generates a generic random QUBO instance with a specified density.
+    """
     np.random.seed(seed)
     
     Q = np.zeros((n, n))
-    # Costant diagonal to generate instances we can solve with global ray
+    # Constant diagonal to generate instances we can solve with a global laser
     np.fill_diagonal(Q, -1.0)
     
-    # positive random connection
+    # Positive random connections
     for i in range(n):
         for j in range(i + 1, n):
             if np.random.rand() < density:
                 val = np.random.uniform(0.5, 1.5)
                 Q[i, j] = val
                 Q[j, i] = val
-                
 
-    os.makedirs("./my_QUBO_instances/scaling_tests/friendly", exist_ok=True)
+    output_dir = "./my_QUBO_instances/scaling_tests/friendly"
+    os.makedirs(output_dir, exist_ok=True)
     
-    file_name = f"./my_QUBO_instances/scaling_tests/global_friendly_{n}x{n}_d{int(density*100)}_s{seed}.npz"
+    file_name = f"{output_dir}/global_friendly_{n}x{n}_d{int(density*100)}_s{seed}.npz"
     
     i_idx, j_idx = np.where(np.triu(Q) != 0)
     weights = Q[i_idx, j_idx]
     np.savez(file_name, i=i_idx, j=j_idx, Jij=weights)
-    print(f"[OK] Generata istanza: {file_name}")
-
-
-import numpy as np
-import os
-from scipy.spatial.distance import pdist, squareform
+    print(f"[OK] Generated instance: {file_name}")
 
 def generate_verisimilar_UDG_qubo(n=5, target_degree=2.5, min_dist=4.0, rydberg_radius=12.0, max_hw_radius=50.0, seed=42):
     """
     Generate QUBO UDG instances to test their embedding on neutral atoms architecture like Jade.
     The generation is performed with the goal of creating a real matrix population with physical 
-    constraints guaranteed. These instances can be used to test how the GA embedding performs and scales
-    on Jade-like neutral atoms architecture to study how the success rate changes scaling the problem
-    and changing its topology.
+    constraints guaranteed. These instances can be used to test how the chosen embedding method performs 
+    and scales to study how the success rate changes based on problem scale and topology.
     """
     np.random.seed(seed)
     
@@ -58,14 +49,14 @@ def generate_verisimilar_UDG_qubo(n=5, target_degree=2.5, min_dist=4.0, rydberg_
     # Formula derived from: <k> = N * (Rydberg_Area / Generation_Area)
     effective_radius = rydberg_radius * np.sqrt(n / target_degree)
     
-    ## Ensure the area NEVER exceeds the physical limits of the machine (50 µm)
+    # Ensure the area NEVER exceeds the physical limits of the machine (50 µm)
     # and that it's not too small to fit the atoms at min_dist
     min_required_radius = np.sqrt(n) * (min_dist / 2.0) * 1.5 
     effective_radius = np.clip(effective_radius, min_required_radius, max_hw_radius)
     
     print(f"Generation {n}x{n} | Calculated Operational Radius: {effective_radius:.2f} µm (Max Hardware: {max_hw_radius} µm)")    
     
-    # Coordinates Generation with Rejection Sampling
+    # 2. Coordinates Generation with Rejection Sampling
     positions = []
     attempts = 0
     max_attempts = 20000
@@ -94,7 +85,7 @@ def generate_verisimilar_UDG_qubo(n=5, target_degree=2.5, min_dist=4.0, rydberg_
     
     positions = np.array(positions)
     
-    # QUBO Matrix Construction
+    # 3. QUBO Matrix Construction
     dist_matrix = squareform(pdist(positions))
     Q = np.zeros((n, n))
     
@@ -105,7 +96,7 @@ def generate_verisimilar_UDG_qubo(n=5, target_degree=2.5, min_dist=4.0, rydberg_
     adjacency_mask = (dist_matrix < rydberg_radius) & (dist_matrix > 0)
     Q[adjacency_mask] = 2.0
     
-    # Saving Compatible with your 'load_hamburg_matrix'
+    # Saving Compatible with the pipeline loaders
     output_dir = "./my_QUBO_instances/scaling_tests/jade_udg"
     os.makedirs(output_dir, exist_ok=True)
     file_name = f"{output_dir}/jade_udg_{n}x{n}_R{int(rydberg_radius)}_s{seed}_d{target_degree}.npz"
@@ -116,17 +107,30 @@ def generate_verisimilar_UDG_qubo(n=5, target_degree=2.5, min_dist=4.0, rydberg_
     
     np.savez(file_name, i=i_idx, j=j_idx, Jij=weights, positions=positions)
     
-    # Validation statistics
+    # 4. Validation statistics
     num_edges = np.sum(adjacency_mask) / 2
     density = num_edges / (n * (n - 1) / 2) if n > 1 else 0
     actual_degree = (num_edges * 2) / n
-    print(f"-> [OK] Salvato. Archi totali: {int(num_edges)} | Grado medio: {actual_degree:.1f} | Densità: {density:.2f}\n")
+    print(f"-> [OK] Saved. Total edges: {int(num_edges)} | Avg degree: {actual_degree:.1f} | Density: {density:.2f}\n")
 
-# --- TEST DI SCALING ---
+# --- SCALING TESTS ---
 if __name__ == "__main__":
+    # Default configuration
+    target_degree = 8.0
+    min_range = 50
+    max_range = 51
+
+    # Optional: override ranges from the terminal (e.g., python instance_generator.py 10 20)
+    if len(sys.argv) == 3:
+        try:
+            min_range = int(sys.argv[1])
+            max_range = int(sys.argv[2])
+        except ValueError:
+            print("Invalid arguments. Using default ranges.")
+
     for size in range(min_range, max_range):
-        # target_degree=3.0 guarantees that each node, on average, clashes 
-        # (violates the Rydberg blockade) with 3 other nodes. 
+        # target_degree guarantees that each node, on average, clashes 
+        # (violates the Rydberg blockade) with the specified number of other nodes. 
         # It is a perfect difficulty level to test the embedding methods.
         generate_verisimilar_UDG_qubo(
             n=size, 

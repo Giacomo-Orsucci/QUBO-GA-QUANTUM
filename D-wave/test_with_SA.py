@@ -3,9 +3,6 @@
 
 
 
-#ATTENTION: still in validation. First implementation
-
-
 #This is the same script of test_with_bruteforce but with Simulated Annealing to be able
 #to test instances with >= 25-30 qubits.
 
@@ -17,11 +14,15 @@ import matplotlib.pyplot as plt
 from dwave.system import LeapHybridSampler, DWaveSampler, EmbeddingComposite
 import neal  
 
+
+#Little script to test a little D-Wave platforms with SA bench.
+
+
 # ==========================================
 # 0. CONFIGURATION
 # ==========================================
 FILE_PATH = "../my_QUBO_instances/scaling_tests/jade_udg/jade_udg_100x100_R12_s142.npz"
-#FILE_PATH = "../my_QUBO_instances/scaling_tests/jade_udg/jade_udg_50x50_R12_s99.npz" # Esempio per grandi istanze
+#FILE_PATH = "../my_QUBO_instances/scaling_tests/jade_udg/jade_udg_50x50_R12_s99.npz" # Example for large instances
 OUTPUT_CSV = "./new_csv/dwave_experiment_SA_100x100.csv"
 
 NUM_READS = 2000 
@@ -179,17 +180,17 @@ if __name__ == "__main__":
     
     top_samples = dict(list(dwave_samples.items())[:30]) 
 
-    # --- NUOVA LOGICA DEI COLORI BASATA SULL'ENERGIA ---
+    # --- NEW COLOR LOGIC BASED ON ENERGY ---
     bar_colors = []
     for bitstring in top_samples.keys():
-        # Convertiamo la stringa in una lista di interi
+        # Convert the string into a list of integers
         x = [int(b) for b in bitstring]
         
-        # Calcoliamo l'energia della stringa usando il nostro Q_dict sparso
-        # Moltiplichiamo il peso 'w' per il valore dei nodi 'r' e 'c'
+        # Calculate the energy of the bitstring using our sparse Q_dict
+        # We multiply the weight 'w' by the value of the nodes 'r' and 'c'
         energy = sum(w * x[r] * x[c] for (r, c), w in Q_dict.items())
         
-        # Se l'energia calcolata combacia con quella del SA (usando isclose per i float) diventa verde
+        # If the calculated energy matches the SA one (using isclose for floats), it becomes green
         if np.isclose(energy, sa_best_energy, atol=1e-5):
             bar_colors.append('green')
         else:

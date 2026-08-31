@@ -11,8 +11,8 @@ from os import getenv
 from qat.qlmaas.connection import QLMaaSConnection
 import re 
 
-# This is the script to retrieve asynchronously the remote result indicating n_atoms, job_id and
-# benchmark file path
+# This script asynchronously retrieves the remote result indicating n_atoms, job_id, and
+# benchmark file path, updates the CSV registry, and plots the measurement histogram.
 
 # --- 0. INITIAL SETUP ---
 
@@ -69,7 +69,7 @@ def load_hamburg_matrix(file_path):
         print(f"Error loading the matrix: {e}")
         return None
 
-#IMPROVEMENT TO DO: use brute-force if n_nodes <= 20, SA otherwise.
+# IMPROVEMENT TO DO: use brute-force if n_nodes <= 20, SA otherwise.
 def find_classical_ground_state(Q):
     """Executes a classical Brute Force calculation to find the exact optimal solution. Don't use it with very big instances"""
     print("  -> Calculating the True Mathematical Ground State (Brute Force)...")
@@ -170,16 +170,16 @@ if os.path.exists(OUTPUT_CSV):
         idx_row = df_history[df_history["Juelich_Job_ID"] == JOB_ID].index[0]
         
         for column, value in quantum_data.items():
-            # --- AGGIUNTA SALVAVITA PER PANDAS STRICT ---
+            # --- LIFESAVER ADDITION FOR STRICT PANDAS ---
             if column not in df_history.columns:
-                # Se la colonna non esiste, la crea come testo
+                # If the column does not exist, create it as text
                 df_history[column] = pd.Series(dtype='object')
             else:
-                # Se esiste già, la converte forzatamente in testo per evitare conflitti int64/float64
+                # If it already exists, forcefully convert to text to avoid int64/float64 conflicts
                 df_history[column] = df_history[column].astype('object')
             # --------------------------------------------
             
-            # Ora l'assegnazione è blindata e non andrà in crash
+            # Now the assignment is bulletproof and will not crash
             df_history.loc[idx_row, column] = value
             
         print(f"[CSV] Existing row for Job {JOB_ID} successfully enriched with hardware metadata.")

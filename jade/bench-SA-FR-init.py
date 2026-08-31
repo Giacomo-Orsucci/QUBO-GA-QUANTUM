@@ -27,11 +27,6 @@ from pulser_myqlm import IsingAQPU
 #FOR THIS REASON THE CODE HAS NOT BEEN EXTENDENTLY VALIDATED
 
 
-#POSSIBLE TO DO: 
-
-#1) COMMENTS TRANSLATION AND UNIFORMATION IN ENGLISH
-#2) TOTAL CHECK
-
 # ==========================================
 # 1. HARDWARE SETUP (Fake Jade)
 # ==========================================
@@ -148,24 +143,24 @@ def optimize_embedding(Q, num_restarts=10):
         jitter_scale = (temp / max_temp) * 2.0 + 0.1 
 
         if move_type < 0.85:
-            # 85% DEL TEMPO (MICRO-JITTER): L'FR ha già sbrogliato i nodi. 
-            # Dobbiamo solo farli "vibrare" per superare la distanza minima di 4 µm.
+            # 85% OF THE TIME (MICRO-JITTER): FR has already untangled the nodes. 
+            # We just need to make them "vibrate" to overcome the minimum distance of 4 µm.
             idx = random.randint(0, N_ATOMS - 1)
             new_coords[idx][0] += random.uniform(-jitter_scale, jitter_scale)
             new_coords[idx][1] += random.uniform(-jitter_scale, jitter_scale)
             
         elif move_type < 0.95:
-            # 10% DEL TEMPO (RESPOSIZIONAMENTO RADIALE DOLCE): 
-            # Aiuta i nodi centrali a scappare verso i bordi senza scombinare l'angolo.
+            # 10% OF THE TIME (GENTLE RADIAL REPOSITIONING): 
+            # Helps central nodes escape towards the edges without altering the angle.
             idx = random.randint(0, N_ATOMS - 1)
             r = np.linalg.norm(new_coords[idx])
             angle = np.arctan2(new_coords[idx][1], new_coords[idx][0])
-            new_r = min(MAX_RADIUS * 0.95, r + random.uniform(-2.0, 2.0)) # Espande dolcemente
+            new_r = min(MAX_RADIUS * 0.95, r + random.uniform(-2.0, 2.0)) # Expands gently
             new_coords[idx] = [new_r * np.cos(angle), new_r * np.sin(angle)]
             
         else:
-            # SOLO 5% DEL TEMPO (SWAP): Ridotto al minimo assoluto. 
-            # Usato solo in caso di rarissimi incroci residui.
+            # ONLY 5% OF THE TIME (SWAP): Reduced to the absolute minimum. 
+            # Used only in case of extremely rare residual crossings.
             idx1, idx2 = random.sample(range(N_ATOMS), 2)
             new_coords[idx1], new_coords[idx2] = new_coords[idx2].copy(), new_coords[idx1].copy()
             
@@ -191,7 +186,7 @@ def optimize_embedding(Q, num_restarts=10):
                     
         # Apply the Spring Layout (FR)
         # Using optimal distance related to MIN_DIST and scaling weights
-        # k=MIN_DIST*2.5 aumenta la repulsione, 300 iterations dà più tempo per stabilizzarsi
+        # k=MIN_DIST*2.5 increases repulsion, 300 iterations gives more time to stabilize
         pos = nx.spring_layout(G, k=MIN_DIST*2.5, iterations=300, weight='weight', seed=random.randint(1, 100000))        
         current_coords = np.zeros((N_ATOMS, 2))
         for i in range(N_ATOMS):

@@ -9,6 +9,10 @@ import matplotlib.pyplot as plt
 from itertools import product
 from dwave.system import LeapHybridSampler, DWaveSampler, EmbeddingComposite
 
+
+#Little script to test a little D-Wave platforms with bruteforce classical bench (so for little instances).
+
+
 # ==========================================
 # 0. CONFIGURATION
 # ==========================================

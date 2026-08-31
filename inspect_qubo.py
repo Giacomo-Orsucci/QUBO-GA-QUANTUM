@@ -4,13 +4,11 @@
 import numpy as np
 import os
 
-# Path to the 16x16 2d_4x4 QUBO matrix with seed00
-# Insert the instance's file path your interested in
 
-#file_path = "./qubo-bench/qubo-benchmark-main/instances/compsup/2d/2d_(4, 4)_precision256_seed18.npz"
-#file_path = "./my_QUBO_instances/scaling_tests/friendly-not_so/global_friendly_6x6_d46.7_s100.npz"
-#file_path = "./my_QUBO_instances/tutorial_5x5.npz"
-file_path = "./my_QUBO_instances/scaling_tests/jade_udg/jade_udg_100x100_R12_s142_d8.0.npz"
+# Insert the instance's file path you're interested in
+
+file_path = "./my_QUBO_instances/scaling_tests/jade_udg/jade_udg_5x5_R12_s47.npz"
+
 
 def inspect_and_print_matrix(path):
     if not os.path.exists(path):
@@ -87,5 +85,14 @@ def inspect_and_print_matrix(path):
     except Exception as e:
         print(f"Error while reading: {e}")
         
-# Execution
-Q_matrix = inspect_and_print_matrix(file_path)
+if __name__ == "__main__":
+    # Allows passing the file path directly from the terminal
+    # Example usage: python inspect_qubo.py ./my_QUBO_instances/scaling_tests/jade_udg/jade_udg_5x5_R12_s47.npz
+    if len(sys.argv) > 1:
+        target_file = sys.argv[1]
+    else:
+        # Fallback path if no argument is provided
+        target_file = "./my_QUBO_instances/scaling_tests/jade_udg/jade_udg_5x5_R12_s47.npz"
+        print(f"No file passed as argument. Using default path: {target_file}\n")
+        
+    Q_matrix = inspect_and_print_matrix(target_file)

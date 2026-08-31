@@ -15,14 +15,12 @@ from qat.core import Result
 
 from pulser_myqlm import FresnelQPU, IsingAQPU
 
+#One of the very first script with early experiments and considerations
+
 """
 This file contains the variant of the QUBO problem from the original tutorial, but solved with a genetic algorithm (GA).
 The idea is to, by modifying the problem itself, familiarize with the structure of a genetic algorithm, and then do a sensitivity analysis on the most important parameters (population and mutation) to understand how they influence convergence.
-Once the problem is stressed and we are familiar with it through GA, the idea is to see how it behaves on a
-10x10 problem and higher, which are dimensions where Nelder-Mead and other classical algorithms become impractical, while GA and other meta-heuristics can still give interesting results.
-This first version uses continuous coordinates, we certainly need to move to a grid (lattice) especially as the number of atoms grows and therefore, the search space.
-We print the average error over 10 runs, but we take the best one to continue with the quantum part 
-(yet to be implemented).
+
 We simulate without noise, which is what we want to quantify directly on Jade.
 """
 
