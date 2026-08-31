@@ -1,0 +1,12 @@
+numpy==2.4.2
+scipy==1.17.1
+pandas==3.0.2
+matplotlib==3.10.8
+networkx==3.6.1
+scikit-learn==1.9.0
+pulser==1.7.0
+pulser-pasqal==0.21.0
+myqlm==1.12.4
+pulser-myqlm==0.8.3
+dwave-ocean-sdk==9.3.0
+pygad==3.5.0
