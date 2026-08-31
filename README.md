@@ -1,41 +1,53 @@
-This is a first experimental repository, built to be a testing ground for initial ideas and experiments (so, despite the effort, possibly a little messy and not so clean in comments). The code also might be a bit messy, but it serves as a sandbox for learning and prototyping. Every script is heavily commented (if you still find some Italian I'm sorry. Feel free to contact me) to clearly highlight its purpose. In the following the instructions to use the more stable and mature scripts you can use as an experimental pipeline:
+# Hybrid Quantum-Classical Architecture for Large-Scale QUBO Problems
 
+This repository serves as the experimental foundation and prototyping sandbox for researching spatial embeddings of Quadratic Unconstrained Binary Optimization (QUBO) problems on Neutral Atom quantum architectures (specifically targeting Pasqal's *Jade* QPU constraints).
 
--instance_generator.py: to generate instances we want to embed. For atom neutral QPUs with global ray like Jade, use the generate_verisimilar_UDG_qubo method with desired parameters.
+The codebase explores both monolithic heuristic embeddings (Genetic Algorithms and Simulated Annealing) and a novel distributed approach, the **Divide et Impera** architecture, designed to scale beyond current physical hardware limitations.
 
--inspect_qubo.py: to inspect visually (in console) and mathematically the QUBO matrix we are interested in.
+---
 
-INSIDE JADE (folder containing atom neutral quantum architecture related scripts):
+**Core Utility Scripts**
+These scripts are used to generate and inspect the target mathematical instances:
+*   `instance_generator.py`: Generates physically viable UDG (Unit Disk Graph) QUBO instances. To target neutral atom QPUs driven by a global laser, use the `generate_verisimilar_UDG_qubo` method with your desired geometric constraints.
+*   `inspect_qubo.py`: Provides visual (console) and mathematical inspection of the generated QUBO matrices.
 
--bench-GA/SA.py: is the "core", load the instance we want to embed and send it to be resolved with AnalogQPU. In detail{
+---
 
-    1. instance loading
-    2. parametrize the GA/SA as you like with the proposed fitness function and hyperparameter of your choice (I recommend improved_topological_mae_fitness_func as I obtained good results on 10x10 UDG instances).
-    3. send the job on the remote Julich HPC (Jade is not ready, so I simulate with AnalogQPU but with Jade's constraints).
-    4. log everything on .csv.
+**The Baseline Pipeline (Monolithic)**
+Found inside the `jade/` directory, these scripts handle the direct embedding of QUBO matrices onto continuous 2D spatial registers.
+*   `bench-GA.py` / `bench-SA.py`: The core execution engines. Their workflow is as follows:
+    1. Load the target QUBO instance.
+    2. Optimize the spatial layout (using the recommended `improved_topological_mae` fitness function).
+    3. Compile and send the adiabatic sequence to the remote Jülich HPC Analog Emulator (applying *Jade*'s strict physical constraints).
+    4. Log execution metrics and parameters to a `.csv` file.
+*   `retrieve.py`: The final step of the experimental loop. Insert the `Job_id` and the instance file path to retrieve the quantum measurement distribution. Successful ground-state identifications are automatically highlighted in green.
 
-}
+---
 
--retrieve.py: final step of the experimental pipeline for Jade. Insert the Job_id, the instance file path, execute and an image with probabilities will be shown. If optimal solutions have been found, the bar charts are green. It logs in the same .csv inserted in bench.py and copied in this script.
+**The *Divide et Impera* Architecture**
+To tackle massive matrices (e.g., 100x100), the repository includes partition-based approaches. The most mature and highly recommended pipeline relies on Simulated Annealing with greedy initialization (`bench-SA-partitioned-greedy-init.py`).
 
-If you want to try the divide et impera approach (name "partitioned"), you can find various versions. In my opinion, bench-SA-greedy-init is the most maure, promising and effective. The conceptual scheme is the following:
-
+**1. Partitioning and Local Execution**
+The global matrix is shattered into hardware-compliant sub-clusters via Spectral Clustering, embedded independently, and routed to the quantum emulator.
 ![Divide et impera approach conceptual scheme](./readme_img/Divide-et-impera.png)
 
-once executed, to retrieve and merge the solutions, use the retrieval-merging.py script:
-
+**2. Retrieval and Merging**
+Execute `retrieval-merging.py` to retrieve the localized measurements, filter out quantum noise via exact local energy evaluation, and merge the states utilizing a deterministic greedy protocol followed by a low-temperature SA fine-tuning.
 ![Divide et impera approach retrieval and merging conceptual scheme](./readme_img/Retrieval-merging.png)
 
-The other scripts in jade are very experimental and not so mature. Their aim was to tests some possible variants, feel free to explore.
+*(Note: Other scripts in the `jade/` folder represent experimental variants developed during the research phase. Feel free to explore them as conceptual sandboxes.)*
 
-I uploaded my_QUBO_instances to show what instances I worked with (in this moment I'm focused on UDG ones), but I can also share hamburgh dataset.
+---
 
+**Datasets (`my_QUBO_instances/`)**
+Contains the UDG instances generated and tested during this research, ranging from small 5x5 matrices up to heavily saturated 100x100 graphs. 
 
-INSIDE D-Wave:
+**D-Wave Benchmarks (`D-wave/`)**
+Includes lightweight scripts to benchmark instances using pure quantum and hybrid solvers on the D-Wave platform for analytical comparison.
 
-little scripts to test PURE_QUANTUM and HYBRID approaches with D-WAVE platform.
+---
 
-Feel free to contact me for any detail, observation, critic or idea. I really appreciate any sort of contribution/constructive exchange of ideas.
-
+**Contributing & Contact**
+This is an active research repository. Every script is heavily commented to detail its algorithmic purpose (with occasional localized notes in Italian). I highly appreciate any constructive feedback, ideas, or questions. Feel free to open an issue or contact me directly to discuss quantum combinatorial optimization!
 
 
